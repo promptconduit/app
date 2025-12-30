@@ -274,11 +274,22 @@ struct RawTerminalView: View {
 struct AgentInputBar: View {
     @Binding var text: String
     let isEnabled: Bool
+    let isRunning: Bool
     let onSend: () -> Void
+    let onInterruptAndSend: () -> Void
+
+    private var canSend: Bool {
+        !text.isEmpty && isEnabled
+    }
+
+    private var showInterruptMode: Bool {
+        isRunning && !text.isEmpty
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            TextField("Enter message...", text: $text)
+            // Text input
+            TextField(isRunning ? "Type to interrupt Claude..." : "Enter message...", text: $text)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13, design: .monospaced))
                 .foregroundColor(DesignTokens.textPrimary)
@@ -287,25 +298,57 @@ struct AgentInputBar: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(DesignTokens.textMuted.opacity(0.3), lineWidth: 1)
+                        .stroke(
+                            showInterruptMode ? DesignTokens.accentOrange.opacity(0.5) : DesignTokens.textMuted.opacity(0.3),
+                            lineWidth: 1
+                        )
                 )
                 .disabled(!isEnabled)
                 .onSubmit {
-                    if !text.isEmpty && isEnabled {
-                        onSend()
+                    if canSend {
+                        if isRunning {
+                            onInterruptAndSend()
+                        } else {
+                            onSend()
+                        }
                     }
                 }
 
-            Button(action: onSend) {
-                Image(systemName: "paperplane.fill")
-                    .font(.system(size: 14))
+            // Send / Interrupt & Send button
+            Button(action: {
+                if isRunning {
+                    onInterruptAndSend()
+                } else {
+                    onSend()
+                }
+            }) {
+                if showInterruptMode {
+                    // Interrupt & Send mode
+                    HStack(spacing: 6) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 11))
+                        Text("Send")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
                     .foregroundColor(DesignTokens.backgroundPrimary)
-                    .padding(10)
-                    .background(isEnabled && !text.isEmpty ? DesignTokens.accentCyan : DesignTokens.textMuted)
-                    .clipShape(Circle())
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(DesignTokens.accentOrange)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    // Normal send mode
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(DesignTokens.backgroundPrimary)
+                        .padding(10)
+                        .background(canSend ? DesignTokens.accentCyan : DesignTokens.textMuted)
+                        .clipShape(Circle())
+                }
             }
             .buttonStyle(.plain)
-            .disabled(text.isEmpty || !isEnabled)
+            .disabled(!canSend)
+            .help(showInterruptMode ? "Interrupt Claude and send your message" : "Send message")
+            .animation(.easeInOut(duration: 0.15), value: showInterruptMode)
         }
         .padding()
         .background(DesignTokens.backgroundSecondary)

@@ -7,8 +7,15 @@ class AgentSession: ObservableObject, Identifiable {
     let prompt: String
     let workingDirectory: String
     let createdAt: Date
+    let resumeSessionId: String?
 
-    @Published private(set) var status: AgentStatus = .idle
+    @Published private(set) var status: AgentStatus = .idle {
+        didSet {
+            if status == .completed || status == .failed {
+                saveToHistory()
+            }
+        }
+    }
     @Published private(set) var transcript: [TranscriptEntry] = []
     @Published private(set) var lastActivity: Date
     @Published private(set) var claudeSessionId: String?
@@ -18,13 +25,20 @@ class AgentSession: ObservableObject, Identifiable {
     private var jsonBuffer = ""
     private var outputDebouncer: AnyCancellable?
     private var accumulatedRawOutput = ""
+    private var originalPromptForResume: String?
 
-    init(id: UUID = UUID(), prompt: String, workingDirectory: String) {
+    init(id: UUID = UUID(), prompt: String, workingDirectory: String, resumeSessionId: String? = nil) {
         self.id = id
         self.prompt = prompt
         self.workingDirectory = workingDirectory
         self.createdAt = Date()
         self.lastActivity = Date()
+        self.resumeSessionId = resumeSessionId
+
+        // If resuming, set the claude session ID immediately
+        if let resumeId = resumeSessionId {
+            self.claudeSessionId = resumeId
+        }
     }
 
     // MARK: - Computed Properties
@@ -54,6 +68,52 @@ class AgentSession: ObservableObject, Identifiable {
     func start() {
         guard status == .idle else { return }
 
+        setupPTYSession()
+
+        do {
+            // Add user prompt to transcript
+            addEntry(.user(prompt))
+
+            // Run claude in print mode with the prompt
+            try ptySession?.runPrompt(prompt)
+            status = .running
+        } catch {
+            status = .failed
+            addEntry(.system("Failed to start: \(error.localizedDescription)"))
+        }
+    }
+
+    /// Starts a resumed session from history
+    func startResume(originalPrompt: String) {
+        guard status == .idle else { return }
+        guard let resumeId = resumeSessionId else {
+            addEntry(.system("No session ID to resume"))
+            status = .failed
+            return
+        }
+
+        self.originalPromptForResume = originalPrompt
+
+        setupPTYSession()
+
+        // Set the session ID for resume
+        ptySession?.setSessionId(resumeId)
+
+        do {
+            // Add a system message indicating we're resuming
+            addEntry(.system("Resuming previous session..."))
+            addEntry(.assistant("(Previous context: \(originalPrompt.prefix(100))\(originalPrompt.count > 100 ? "..." : ""))"))
+
+            // Use --continue to just continue the session
+            try ptySession?.runResume()
+            status = .running
+        } catch {
+            status = .failed
+            addEntry(.system("Failed to resume: \(error.localizedDescription)"))
+        }
+    }
+
+    private func setupPTYSession() {
         ptySession = PTYSession(workingDirectory: workingDirectory)
 
         // Subscribe to output changes with throttling to prevent UI flooding
@@ -77,18 +137,6 @@ class AgentSession: ObservableObject, Identifiable {
                 }
             }
             .store(in: &cancellables)
-
-        do {
-            // Add user prompt to transcript
-            addEntry(.user(prompt))
-
-            // Run claude in print mode with the prompt
-            try ptySession?.runPrompt(prompt)
-            status = .running
-        } catch {
-            status = .failed
-            addEntry(.system("Failed to start: \(error.localizedDescription)"))
-        }
     }
 
     func sendPrompt(_ text: String) {
@@ -155,6 +203,32 @@ class AgentSession: ObservableObject, Identifiable {
 
     func interrupt() {
         ptySession?.interrupt()
+    }
+
+    /// Interrupts the current response and sends a new prompt
+    func interruptAndSend(_ text: String) {
+        guard status == .running else {
+            // If not running, just send normally
+            sendPrompt(text)
+            return
+        }
+
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        // Add a system message indicating interruption
+        addEntry(.system("Interrupted by user"))
+
+        // Interrupt the current process
+        ptySession?.interrupt()
+
+        // Wait briefly for the interrupt to take effect, then send the new prompt
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self = self else { return }
+
+            // The process should have stopped or be stopping
+            // Now send the follow-up prompt
+            self.sendPrompt(text)
+        }
     }
 
     // MARK: - Output Processing
@@ -280,6 +354,32 @@ class AgentSession: ObservableObject, Identifiable {
 
     private func addEntry(_ type: TranscriptEntry.EntryType) {
         transcript.append(TranscriptEntry(type: type))
+    }
+
+    // MARK: - History Persistence
+
+    private func saveToHistory() {
+        guard let sessionId = claudeSessionId else { return }
+
+        let historyStatus: SessionHistoryStatus
+        switch status {
+        case .completed: historyStatus = .completed
+        case .failed: historyStatus = .failed
+        default: historyStatus = .interrupted
+        }
+
+        // Use the original prompt for resumed sessions, otherwise use the current prompt
+        let promptToSave = originalPromptForResume ?? prompt
+
+        SettingsService.shared.saveSession(
+            sessionId: sessionId,
+            repositoryPath: workingDirectory,
+            prompt: promptToSave,
+            createdAt: createdAt,
+            lastActivity: lastActivity,
+            status: historyStatus,
+            messageCount: transcript.count
+        )
     }
 }
 

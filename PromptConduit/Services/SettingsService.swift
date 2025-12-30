@@ -75,6 +75,7 @@ class SettingsService: ObservableObject {
     static let shared = SettingsService()
 
     private static let maxRecentRepos = 10
+    private static let maxSessionHistory = 50
 
     // MARK: - Published Settings
 
@@ -103,6 +104,7 @@ class SettingsService: ObservableObject {
     }
 
     @Published private(set) var recentRepositories: [RecentRepository] = []
+    @Published private(set) var sessionHistory: [SessionHistory] = []
 
     // MARK: - Paths
 
@@ -153,6 +155,12 @@ class SettingsService: ObservableObject {
         if let data = defaults.data(forKey: "recentRepositories"),
            let repos = try? JSONDecoder().decode([RecentRepository].self, from: data) {
             self.recentRepositories = repos
+        }
+
+        // Load session history
+        if let data = defaults.data(forKey: "sessionHistory"),
+           let history = try? JSONDecoder().decode([SessionHistory].self, from: data) {
+            self.sessionHistory = history
         }
     }
 
@@ -220,5 +228,80 @@ class SettingsService: ObservableObject {
         if !directoryExists(path) {
             try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         }
+    }
+
+    // MARK: - Session History
+
+    private func saveSessionHistory() {
+        if let data = try? JSONEncoder().encode(sessionHistory) {
+            defaults.set(data, forKey: "sessionHistory")
+        }
+    }
+
+    /// Saves a completed session to history
+    func saveSession(
+        sessionId: String,
+        repositoryPath: String,
+        prompt: String,
+        createdAt: Date,
+        lastActivity: Date,
+        status: SessionHistoryStatus,
+        messageCount: Int
+    ) {
+        // Check if session already exists (update it)
+        if let index = sessionHistory.firstIndex(where: { $0.sessionId == sessionId }) {
+            sessionHistory[index].lastActivity = lastActivity
+            sessionHistory[index].status = status
+            sessionHistory[index].messageCount = messageCount
+        } else {
+            // Add new session at the beginning
+            let history = SessionHistory(
+                sessionId: sessionId,
+                repositoryPath: repositoryPath,
+                prompt: prompt,
+                createdAt: createdAt,
+                lastActivity: lastActivity,
+                status: status,
+                messageCount: messageCount
+            )
+            sessionHistory.insert(history, at: 0)
+
+            // Keep only the most recent N sessions
+            if sessionHistory.count > Self.maxSessionHistory {
+                sessionHistory = Array(sessionHistory.prefix(Self.maxSessionHistory))
+            }
+        }
+
+        saveSessionHistory()
+    }
+
+    /// Gets sessions for a specific repository, sorted by most recent first
+    func sessionsForRepository(path: String) -> [SessionHistory] {
+        sessionHistory
+            .filter { $0.repositoryPath == path }
+            .sorted { $0.lastActivity > $1.lastActivity }
+    }
+
+    /// Gets the most recent session for a repository (if any)
+    func mostRecentSession(forRepository path: String) -> SessionHistory? {
+        sessionsForRepository(path: path).first
+    }
+
+    /// Removes a session from history
+    func removeSession(sessionId: String) {
+        sessionHistory.removeAll { $0.sessionId == sessionId }
+        saveSessionHistory()
+    }
+
+    /// Clears all session history
+    func clearSessionHistory() {
+        sessionHistory.removeAll()
+        saveSessionHistory()
+    }
+
+    /// Clears session history for a specific repository
+    func clearSessionHistory(forRepository path: String) {
+        sessionHistory.removeAll { $0.repositoryPath == path }
+        saveSessionHistory()
     }
 }

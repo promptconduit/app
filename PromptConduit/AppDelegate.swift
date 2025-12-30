@@ -133,8 +133,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showReposWindow() {
-        // TODO: Implement repos window
-        print("Repos window not implemented yet")
+        if agentPanelController == nil {
+            agentPanelController = AgentPanelController()
+        }
+        agentPanelController?.showRepositoriesPanel()
     }
 
     @objc private func showSettings() {
