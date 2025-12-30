@@ -312,10 +312,19 @@ struct AgentHeaderView: View {
                     .font(.headline)
                     .lineLimit(1)
 
-                HStack {
-                    Text(session.status.emoji)
-                    Text(session.status.rawValue)
-                        .foregroundColor(.secondary)
+                HStack(spacing: 6) {
+                    // Status pill
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(statusColor)
+                            .frame(width: 8, height: 8)
+                        Text(session.status.rawValue)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(statusColor.opacity(0.15))
+                    .cornerRadius(8)
+
                     Text("•")
                         .foregroundColor(.secondary)
                     Text(session.repoName)
@@ -326,13 +335,36 @@ struct AgentHeaderView: View {
 
             Spacer()
 
-            if session.status == .running {
-                Button(action: { session.interrupt() }) {
-                    Image(systemName: "stop.fill")
+            HStack(spacing: 8) {
+                if session.status == .running || session.status == .waiting {
+                    Button(action: { session.interrupt() }) {
+                        Image(systemName: "stop.fill")
+                            .foregroundColor(.red)
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Stop Agent")
                 }
-                .help("Stop Agent")
+
+                if session.status == .completed || session.status == .failed {
+                    Button("Restart") {
+                        // TODO: Implement restart
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(true) // Not implemented yet
+                }
             }
         }
         .padding()
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+
+    private var statusColor: Color {
+        switch session.status {
+        case .idle: return .gray
+        case .running: return .green
+        case .waiting: return .yellow
+        case .completed: return .blue
+        case .failed: return .red
+        }
     }
 }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Displays the conversation transcript
+/// Displays the conversation transcript with clean terminal-like output
 struct TranscriptView: View {
     let entries: [TranscriptEntry]
     let rawOutput: String
@@ -9,7 +9,7 @@ struct TranscriptView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Toggle for raw output
+            // Toggle for output mode
             HStack {
                 Spacer()
                 Toggle("Show Raw Output", isOn: $showRawOutput)
@@ -17,119 +17,161 @@ struct TranscriptView: View {
                     .controlSize(.small)
             }
             .padding(.horizontal)
-            .padding(.vertical, 4)
+            .padding(.vertical, 6)
             .background(Color(NSColor.controlBackgroundColor))
 
-            // Content
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        if showRawOutput {
-                            RawOutputView(output: rawOutput)
-                        } else {
-                            ForEach(entries) { entry in
-                                TranscriptEntryView(entry: entry)
-                                    .id(entry.id)
-                            }
-                        }
-                    }
-                    .padding()
-                }
-                .onChange(of: entries.count) { _ in
-                    // Scroll to bottom on new entry
-                    if let lastEntry = entries.last {
-                        withAnimation {
-                            proxy.scrollTo(lastEntry.id, anchor: .bottom)
-                        }
-                    }
-                }
+            Divider()
+
+            // Content area
+            if showRawOutput {
+                RawTerminalView(output: rawOutput)
+            } else {
+                CleanOutputView(output: rawOutput)
             }
         }
     }
 }
 
-// MARK: - Entry View
+// MARK: - Clean Output View (Stripped ANSI)
 
-struct TranscriptEntryView: View {
-    let entry: TranscriptEntry
+struct CleanOutputView: View {
+    let output: String
+
+    private var cleanedOutput: String {
+        OutputParser.stripANSI(output)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var outputLines: [OutputLine] {
+        cleanedOutput
+            .components(separatedBy: .newlines)
+            .enumerated()
+            .map { OutputLine(id: $0.offset, text: $0.element) }
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Icon
-            entryIcon
-                .frame(width: 24)
-
-            // Content
-            VStack(alignment: .leading, spacing: 4) {
-                Text(entryLabel)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Text(entry.content)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .padding(8)
-                    .background(entryBackground)
-                    .cornerRadius(8)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(outputLines) { line in
+                        OutputLineView(line: line)
+                            .id(line.id)
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
-    }
-
-    @ViewBuilder
-    private var entryIcon: some View {
-        switch entry.type {
-        case .user:
-            Image(systemName: "person.fill")
-                .foregroundColor(.blue)
-        case .assistant:
-            Image(systemName: "cpu")
-                .foregroundColor(.purple)
-        case .tool:
-            Image(systemName: "wrench.fill")
-                .foregroundColor(.orange)
-        case .system:
-            Image(systemName: "gear")
-                .foregroundColor(.gray)
-        }
-    }
-
-    private var entryLabel: String {
-        let time = entry.timestamp.formatted(date: .omitted, time: .shortened)
-        switch entry.type {
-        case .user: return "You • \(time)"
-        case .assistant: return "Claude • \(time)"
-        case .tool: return "Tool • \(time)"
-        case .system: return "System • \(time)"
-        }
-    }
-
-    private var entryBackground: Color {
-        switch entry.type {
-        case .user:
-            return Color.blue.opacity(0.1)
-        case .assistant:
-            return Color.purple.opacity(0.1)
-        case .tool:
-            return Color.orange.opacity(0.1)
-        case .system:
-            return Color.gray.opacity(0.1)
+            .background(Color(NSColor.textBackgroundColor))
+            .onChange(of: outputLines.count) { _ in
+                if let lastLine = outputLines.last {
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        proxy.scrollTo(lastLine.id, anchor: .bottom)
+                    }
+                }
+            }
         }
     }
 }
 
-// MARK: - Raw Output View
+struct OutputLine: Identifiable {
+    let id: Int
+    let text: String
+}
 
-struct RawOutputView: View {
+struct OutputLineView: View {
+    let line: OutputLine
+
+    var body: some View {
+        Group {
+            if isPromptLine {
+                HStack(spacing: 4) {
+                    Text("›")
+                        .font(.system(.body, design: .monospaced))
+                        .fontWeight(.bold)
+                        .foregroundColor(.accentColor)
+                    Text(promptText)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(.primary)
+                }
+            } else if isClaudeHeader {
+                Text(line.text)
+                    .font(.system(.body, design: .monospaced))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.purple)
+            } else if isToolLine {
+                HStack(spacing: 4) {
+                    Image(systemName: "wrench.fill")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                    Text(line.text)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            } else if isSeparatorLine {
+                Divider()
+                    .padding(.vertical, 4)
+            } else if !line.text.trimmingCharacters(in: .whitespaces).isEmpty {
+                Text(line.text)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(.primary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private var isPromptLine: Bool {
+        let trimmed = line.text.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix(">") || trimmed.hasPrefix("❯")
+    }
+
+    private var promptText: String {
+        let trimmed = line.text.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("> ") {
+            return String(trimmed.dropFirst(2))
+        } else if trimmed.hasPrefix("❯ ") {
+            return String(trimmed.dropFirst(2))
+        }
+        return trimmed
+    }
+
+    private var isClaudeHeader: Bool {
+        line.text.contains("Claude Code") || line.text.contains("Welcome")
+    }
+
+    private var isToolLine: Bool {
+        line.text.contains("[Tool:") || line.text.contains("Reading") ||
+        line.text.contains("Writing") || line.text.contains("Editing")
+    }
+
+    private var isSeparatorLine: Bool {
+        let trimmed = line.text.trimmingCharacters(in: .whitespaces)
+        return trimmed.allSatisfy { $0 == "─" || $0 == "-" || $0 == "═" } && trimmed.count > 10
+    }
+}
+
+// MARK: - Raw Terminal View
+
+struct RawTerminalView: View {
     let output: String
 
     var body: some View {
-        Text(output)
-            .font(.system(.body, design: .monospaced))
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(Color(NSColor.textBackgroundColor))
-            .cornerRadius(8)
+        ScrollViewReader { proxy in
+            ScrollView {
+                Text(output)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.green)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .id("rawOutput")
+            }
+            .background(Color.black)
+            .onChange(of: output.count) { _ in
+                withAnimation {
+                    proxy.scrollTo("rawOutput", anchor: .bottom)
+                }
+            }
+        }
     }
 }
 
@@ -154,10 +196,11 @@ struct AgentInputBar: View {
             Button(action: onSend) {
                 Image(systemName: "paperplane.fill")
             }
+            .buttonStyle(.borderedProminent)
             .disabled(text.isEmpty || !isEnabled)
-            .keyboardShortcut(.return, modifiers: [])
         }
         .padding()
+        .background(Color(NSColor.controlBackgroundColor))
     }
 }
 
@@ -165,12 +208,18 @@ struct AgentInputBar: View {
 
 #Preview {
     TranscriptView(
-        entries: [
-            TranscriptEntry(type: .user("Add google analytics to this website")),
-            TranscriptEntry(type: .assistant("I'll help you add Google Analytics. First, let me check your project structure...")),
-            TranscriptEntry(type: .tool("Read", "src/app/layout.tsx")),
-            TranscriptEntry(type: .assistant("I found your layout file. I'll add the Google Analytics script.")),
-        ],
-        rawOutput: "Sample raw output..."
+        entries: [],
+        rawOutput: """
+        ╭─── Claude Code v2.0.75 ──────────────────────────────╮
+        │             Welcome back Scott Havird!               │
+        │                    * ▝▜█████▛▘ *                     │
+        │  Opus 4.5 · Claude Max · scott@example.com           │
+        ╰──────────────────────────────────────────────────────╯
+
+        > What would you like me to help with today?
+
+        [Tool: Read] src/app/layout.tsx
+        I've read the file. Here's what I found...
+        """
     )
 }

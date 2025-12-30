@@ -55,12 +55,18 @@ class AgentSession: ObservableObject, Identifiable {
             }
             .store(in: &cancellables)
 
-        // Subscribe to running state
+        // Subscribe to running state - but be more careful about completion
         ptySession?.$isRunning
             .receive(on: DispatchQueue.main)
+            .dropFirst() // Skip initial value
+            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main) // Wait to confirm it's really stopped
             .sink { [weak self] isRunning in
-                if !isRunning && self?.status == .running {
-                    self?.status = .completed
+                guard let self = self else { return }
+                if !isRunning && (self.status == .running || self.status == .waiting) {
+                    // Only mark as completed if we have some output
+                    if !self.rawOutput.isEmpty {
+                        self.status = .completed
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -70,8 +76,9 @@ class AgentSession: ObservableObject, Identifiable {
             status = .running
 
             // Wait a moment for Claude to initialize, then send the prompt
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                self?.sendPrompt(self?.prompt ?? "")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                guard let self = self, !self.prompt.isEmpty else { return }
+                self.sendPrompt(self.prompt)
             }
         } catch {
             status = .failed

@@ -2,23 +2,60 @@ import Foundation
 
 /// Parses and processes Claude CLI output
 class OutputParser {
-    // ANSI escape code pattern
-    private static let ansiPattern = try! NSRegularExpression(
-        pattern: "\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])",
-        options: []
-    )
+    // Multiple ANSI escape patterns to catch all variations
+    private static let ansiPatterns: [NSRegularExpression] = {
+        let patterns = [
+            // Standard ANSI escape sequences (ESC [ ... m)
+            "\\x1B\\[[0-9;]*m",
+            // ANSI cursor and screen control
+            "\\x1B\\[[0-9;]*[A-Za-z]",
+            // More general ANSI pattern
+            "\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])",
+            // OSC sequences (title bar, etc)
+            "\\x1B\\][^\\x07\\x1B]*(?:\\x07|\\x1B\\\\)",
+            // Catch sequences that lost ESC prefix (common in some terminals)
+            "\\[\\?[0-9;]*[a-z]",
+            "\\[[0-9;]+m",
+            // DEC special sequences
+            "\\x1B[78]",
+            "\\x1B\\([AB0-2]",
+        ]
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: []) }
+    }()
 
     // MARK: - ANSI Stripping
 
     /// Removes ANSI escape codes from text
     static func stripANSI(_ text: String) -> String {
-        let range = NSRange(text.startIndex..., in: text)
-        return ansiPattern.stringByReplacingMatches(
-            in: text,
-            options: [],
-            range: range,
-            withTemplate: ""
-        )
+        var result = text
+
+        // Apply all patterns
+        for pattern in ansiPatterns {
+            let range = NSRange(result.startIndex..., in: result)
+            result = pattern.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: range,
+                withTemplate: ""
+            )
+        }
+
+        // Also remove common control characters
+        result = result.replacingOccurrences(of: "\u{1B}", with: "") // ESC
+        result = result.replacingOccurrences(of: "\u{9B}", with: "") // CSI
+
+        // Remove any remaining bracket sequences that look like ANSI codes
+        if let bracketPattern = try? NSRegularExpression(pattern: "\\[[0-9;?]*[a-zA-Z]", options: []) {
+            let range = NSRange(result.startIndex..., in: result)
+            result = bracketPattern.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: range,
+                withTemplate: ""
+            )
+        }
+
+        return result
     }
 
     // MARK: - Pattern Detection

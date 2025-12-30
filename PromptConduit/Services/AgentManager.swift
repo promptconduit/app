@@ -8,7 +8,11 @@ class AgentManager: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var activeSessionId: UUID?
 
+    // Trigger to force UI updates when session status changes
+    @Published private(set) var lastStatusChange: Date = Date()
+
     private var cancellables = Set<AnyCancellable>()
+    private var sessionCancellables: [UUID: AnyCancellable] = [:]
 
     private init() {}
 
@@ -20,6 +24,15 @@ class AgentManager: ObservableObject {
             prompt: prompt,
             workingDirectory: workingDirectory
         )
+
+        // Observe session status changes
+        let cancellable = session.$status
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.lastStatusChange = Date()
+                self?.objectWillChange.send()
+            }
+        sessionCancellables[session.id] = cancellable
 
         sessions.append(session)
         activeSessionId = session.id
@@ -49,6 +62,7 @@ class AgentManager: ObservableObject {
     /// Terminates a specific session
     func terminateSession(_ session: AgentSession) {
         session.stop()
+        sessionCancellables.removeValue(forKey: session.id)
         sessions.removeAll { $0.id == session.id }
 
         if activeSessionId == session.id {
@@ -62,6 +76,7 @@ class AgentManager: ObservableObject {
             session.stop()
         }
         sessions.removeAll()
+        sessionCancellables.removeAll()
         activeSessionId = nil
     }
 
