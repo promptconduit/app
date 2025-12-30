@@ -1,0 +1,69 @@
+name: PromptConduit
+options:
+  bundleIdPrefix: com.promptconduit
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    PRODUCT_NAME: PromptConduit
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.9"
+    ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+  PromptConduit:
+    type: application
+    platform: macOS
+    sources:
+      - path: PromptConduit
+        excludes:
+          - "**/*.xcassets"
+    resources:
+      - path: PromptConduit/Resources
+    settings:
+      base:
+        INFOPLIST_FILE: PromptConduit/Resources/Info.plist
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: YES
+        ENABLE_PREVIEWS: YES
+    entitlements:
+      path: PromptConduit/Resources/PromptConduit.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.automation.apple-events: true
+
+  PromptConduitTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: PromptConduitTests
+    dependencies:
+      - target: PromptConduit
+    settings:
+      base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/PromptConduit.app/Contents/MacOS/PromptConduit"
+
+schemes:
+  PromptConduit:
+    build:
+      targets:
+        PromptConduit: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - PromptConduitTests
+    profile:
+      config: Release
+    archive:
+      config: Release
