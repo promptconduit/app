@@ -49,25 +49,52 @@ class PTYSession: ObservableObject {
         if childPID == 0 {
             // Child process
             if chdir(workingDirectory) != 0 {
-                exit(1)
+                _exit(1)
             }
 
             // Set up environment
             setenv("TERM", "xterm-256color", 1)
             setenv("LANG", "en_US.UTF-8", 1)
 
-            // Execute claude
-            let command = "claude"
-            let args = [command]
+            // Preserve PATH from parent to find claude
+            if let path = ProcessInfo.processInfo.environment["PATH"] {
+                setenv("PATH", path, 1)
+            }
 
-            // Convert args to C-style array
-            var cArgs = args.map { strdup($0) }
-            cArgs.append(nil)
+            // Also check common homebrew paths
+            let currentPath: String
+            if let envPath = getenv("PATH") {
+                currentPath = String(cString: envPath)
+            } else {
+                currentPath = ""
+            }
+            let homebrewPaths = "/opt/homebrew/bin:/usr/local/bin"
+            setenv("PATH", "\(homebrewPaths):\(currentPath)", 1)
 
-            execvp(command, &cArgs)
+            // Find claude in PATH and execute
+            let claudePaths = [
+                "/opt/homebrew/bin/claude",
+                "/usr/local/bin/claude",
+                "/usr/bin/claude"
+            ]
 
-            // If we get here, exec failed
-            exit(1)
+            for claudePath in claudePaths {
+                // Create args array for execv
+                claudePath.withCString { pathPtr in
+                    "claude".withCString { namePtr in
+                        var args: [UnsafeMutablePointer<CChar>?] = [
+                            UnsafeMutablePointer(mutating: namePtr),
+                            nil
+                        ]
+                        _ = execv(pathPtr, &args)
+                    }
+                }
+            }
+
+            // If we get here, exec failed on all paths - write error and exit
+            let errorMsg = "Failed to execute claude (not found in PATH)\n"
+            write(STDERR_FILENO, errorMsg, errorMsg.count)
+            _exit(127)
         }
 
         // Parent process

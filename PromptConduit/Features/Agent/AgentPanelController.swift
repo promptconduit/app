@@ -96,15 +96,21 @@ class AgentPanelController {
 struct NewAgentView: View {
     let onStart: (String, String) -> Void
 
+    @ObservedObject private var settings = SettingsService.shared
+    @StateObject private var commandsService = SlashCommandsService.shared
+
     @State private var prompt: String = ""
-    @State private var selectedDirectory: String = FileManager.default.currentDirectoryPath
+    @State private var selectedDirectory: String = ""
+    @State private var selectedCommand: SlashCommand?
+    @State private var showCommandPicker = false
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Text("New Agent")
                 .font(.title)
                 .fontWeight(.semibold)
 
+            // Working Directory
             VStack(alignment: .leading, spacing: 8) {
                 Text("Working Directory")
                     .font(.headline)
@@ -117,18 +123,87 @@ struct NewAgentView: View {
                         selectDirectory()
                     }
                 }
+
+                // Quick access to recent directories
+                if !settings.defaultProjectsDirectory.isEmpty {
+                    HStack {
+                        Text("Default:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Button(settings.defaultProjectsDirectory) {
+                            selectedDirectory = settings.defaultProjectsDirectory
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                    }
+                }
             }
 
+            // Slash Commands
+            if !commandsService.commands.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Slash Command")
+                            .font(.headline)
+                        Text("(optional)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(commandsService.commands.prefix(10)) { command in
+                                CommandChip(
+                                    command: command,
+                                    isSelected: selectedCommand?.id == command.id,
+                                    onTap: {
+                                        if selectedCommand?.id == command.id {
+                                            selectedCommand = nil
+                                        } else {
+                                            selectedCommand = command
+                                            if prompt.isEmpty {
+                                                prompt = command.prompt
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Prompt
             VStack(alignment: .leading, spacing: 8) {
-                Text("Prompt")
-                    .font(.headline)
+                HStack {
+                    Text("Prompt")
+                        .font(.headline)
+
+                    Spacer()
+
+                    if selectedCommand != nil {
+                        Button("Clear") {
+                            selectedCommand = nil
+                            prompt = ""
+                        }
+                        .font(.caption)
+                        .buttonStyle(.link)
+                    }
+                }
 
                 TextEditor(text: $prompt)
                     .font(.body)
-                    .frame(minHeight: 100)
-                    .border(Color.gray.opacity(0.3))
+                    .frame(minHeight: 120)
+                    .scrollContentBackground(.hidden)
+                    .background(Color(NSColor.textBackgroundColor))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
             }
 
+            // Actions
             HStack {
                 Spacer()
 
@@ -141,11 +216,18 @@ struct NewAgentView: View {
                     onStart(prompt, selectedDirectory)
                 }
                 .keyboardShortcut(.return)
+                .buttonStyle(.borderedProminent)
                 .disabled(prompt.isEmpty || selectedDirectory.isEmpty)
             }
         }
         .padding()
-        .frame(minWidth: 500, minHeight: 300)
+        .frame(minWidth: 550, minHeight: 400)
+        .onAppear {
+            // Set default directory on appear
+            if selectedDirectory.isEmpty {
+                selectedDirectory = settings.defaultProjectsDirectory
+            }
+        }
     }
 
     private func selectDirectory() {
@@ -154,9 +236,36 @@ struct NewAgentView: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
 
+        // Start from default directory
+        if settings.directoryExists(settings.defaultProjectsDirectory) {
+            panel.directoryURL = URL(fileURLWithPath: settings.defaultProjectsDirectory)
+        }
+
         if panel.runModal() == .OK, let url = panel.url {
             selectedDirectory = url.path
         }
+    }
+}
+
+// MARK: - Command Chip
+
+struct CommandChip: View {
+    let command: SlashCommand
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            Text("/\(command.name)")
+                .font(.caption)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.2))
+                .foregroundColor(isSelected ? .white : .primary)
+                .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+        .help(command.description ?? command.name)
     }
 }
 

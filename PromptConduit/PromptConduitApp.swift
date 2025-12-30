@@ -6,14 +6,7 @@ struct PromptConduitApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView()
+            AppSettingsView()
         }
-    }
-}
-
-struct SettingsView: View {
-    var body: some View {
-        Text("PromptConduit Settings")
-            .frame(width: 400, height: 300)
     }
 }
