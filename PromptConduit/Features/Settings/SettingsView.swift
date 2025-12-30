@@ -86,6 +86,36 @@ struct GeneralSettingsTab: View {
 
             Section {
                 VStack(alignment: .leading, spacing: 12) {
+                    Text("Code Editor")
+                        .font(.headline)
+
+                    Picker("Preferred editor:", selection: $settings.preferredCodeEditor) {
+                        ForEach(CodeEditor.allCases) { editor in
+                            HStack {
+                                Text(editor.displayName)
+                                if editor != .none && !editor.isInstalled {
+                                    Text("(not installed)")
+                                        .foregroundColor(.secondary)
+                                        .font(.caption)
+                                }
+                            }
+                            .tag(editor)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 250)
+
+                    Text("Opens the project directory with a button in the agent header")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 8)
+            }
+
+            Divider()
+
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("Keyboard Shortcut")
                         .font(.headline)
 

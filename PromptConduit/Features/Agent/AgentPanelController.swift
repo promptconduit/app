@@ -453,6 +453,7 @@ struct AgentView: View {
 
 struct AgentHeaderView: View {
     @ObservedObject var session: AgentSession
+    @ObservedObject private var settings = SettingsService.shared
 
     var body: some View {
         HStack {
@@ -487,6 +488,28 @@ struct AgentHeaderView: View {
                     }
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(AgentDesignTokens.textSecondary)
+
+                    // GitHub link button
+                    if let gitHubURL = session.gitHubURL {
+                        Button(action: { NSWorkspace.shared.open(gitHubURL) }) {
+                            Image(systemName: "link")
+                                .font(.system(size: 10))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(AgentDesignTokens.textSecondary)
+                        .help("Open on GitHub")
+                    }
+
+                    // Open in editor button
+                    if settings.preferredCodeEditor != .none {
+                        Button(action: { openInEditor() }) {
+                            Image(systemName: "curlybraces")
+                                .font(.system(size: 10))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(AgentDesignTokens.textSecondary)
+                        .help("Open in \(settings.preferredCodeEditor.displayName)")
+                    }
                 }
             }
 
@@ -510,6 +533,11 @@ struct AgentHeaderView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(AgentDesignTokens.backgroundSecondary)
+    }
+
+    private func openInEditor() {
+        let directory = session.workingDirectory
+        settings.preferredCodeEditor.open(directory: directory)
     }
 
     private var statusColor: Color {

@@ -33,6 +33,11 @@ class AgentSession: ObservableObject, Identifiable {
         URL(fileURLWithPath: workingDirectory).lastPathComponent
     }
 
+    /// The GitHub URL for the repository, if available
+    var gitHubURL: URL? {
+        GitService.shared.getGitHubURL(for: workingDirectory)
+    }
+
     var shortPrompt: String {
         if prompt.count > 50 {
             return String(prompt.prefix(47)) + "..."
