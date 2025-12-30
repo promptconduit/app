@@ -1,18 +1,23 @@
 import AppKit
 import SwiftUI
 
-/// Controls the floating agent panel window
+/// Manages all agent panel windows - each agent gets its own window
 class AgentPanelController {
-    private var panel: NSPanel?
-    private var session: AgentSession?
+    /// Tracks all open panels by session ID
+    private var panels: [UUID: NSPanel] = [:]
 
-    init() {
-        setupPanel()
-    }
+    /// Panel for creating new agents (separate from session panels)
+    private var newAgentPanel: NSPanel?
 
-    // MARK: - Panel Setup
+    /// Counter for cascading window positions
+    private var windowOffset: Int = 0
 
-    private func setupPanel() {
+    init() {}
+
+    // MARK: - Panel Creation
+
+    /// Creates a new floating panel with standard configuration
+    private func createPanel() -> NSPanel {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
             styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel],
@@ -26,68 +31,125 @@ class AgentPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false
-
-        // Minimum size
         panel.minSize = NSSize(width: 400, height: 300)
 
-        // Position in top-right quadrant
+        // Position with cascade offset for multiple windows
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
             let panelFrame = panel.frame
-            let x = screenFrame.maxX - panelFrame.width - 20
-            let y = screenFrame.maxY - panelFrame.height - 20
+            let cascadeOffset = CGFloat(windowOffset * 30)
+            let x = screenFrame.maxX - panelFrame.width - 20 - cascadeOffset
+            let y = screenFrame.maxY - panelFrame.height - 20 - cascadeOffset
             panel.setFrameOrigin(NSPoint(x: x, y: y))
+
+            windowOffset = (windowOffset + 1) % 5  // Reset after 5 windows
         }
 
-        self.panel = panel
+        return panel
     }
 
     // MARK: - Panel Control
 
-    func showPanel(with session: AgentSession? = nil) {
-        if let session = session {
-            self.session = session
-            updateContent()
-        } else {
-            showNewAgentView()
+    /// Shows a new agent creation window
+    func showNewAgentPanel() {
+        // Always create a fresh panel for new agent form
+        let panel = createPanel()
+        panel.title = "New Agent"
+
+        let view = NewAgentView { [weak self, weak panel] prompt, directory in
+            // Close the new agent form
+            panel?.close()
+
+            // Create and show the agent in a new window
+            self?.startNewAgent(prompt: prompt, directory: directory)
+        }
+        panel.contentView = NSHostingView(rootView: view)
+
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        newAgentPanel = panel
+    }
+
+    /// Shows an existing agent session in its own window
+    func showPanel(for session: AgentSession) {
+        // Check if this session already has a panel
+        if let existingPanel = panels[session.id] {
+            existingPanel.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
         }
 
-        panel?.makeKeyAndOrderFront(nil)
+        // Create a new panel for this session
+        let panel = createPanel()
+        panel.title = "Agent: \(session.repoName)"
+
+        let view = AgentView(session: session)
+        panel.contentView = NSHostingView(rootView: view)
+
+        // Track this panel
+        panels[session.id] = panel
+
+        // Clean up when panel closes
+        panel.delegate = PanelCloseDelegate { [weak self] in
+            self?.panels.removeValue(forKey: session.id)
+        }
+
+        panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Legacy method for backward compatibility - shows new agent panel if no session
+    func showPanel(with session: AgentSession? = nil) {
+        if let session = session {
+            showPanel(for: session)
+        } else {
+            showNewAgentPanel()
+        }
+    }
+
     func hidePanel() {
-        panel?.orderOut(nil)
+        newAgentPanel?.orderOut(nil)
     }
 
     func closePanel() {
-        panel?.close()
+        newAgentPanel?.close()
     }
 
-    // MARK: - Content Management
-
-    private func showNewAgentView() {
-        let view = NewAgentView { [weak self] prompt, directory in
-            self?.startNewAgent(prompt: prompt, directory: directory)
+    /// Closes all panels
+    func closeAllPanels() {
+        for panel in panels.values {
+            panel.close()
         }
-        panel?.contentView = NSHostingView(rootView: view)
-        panel?.title = "New Agent"
+        panels.removeAll()
+        newAgentPanel?.close()
+        newAgentPanel = nil
     }
 
-    private func updateContent() {
-        guard let session = session else { return }
-
-        let view = AgentView(session: session)
-        panel?.contentView = NSHostingView(rootView: view)
-        panel?.title = "Agent: \(session.repoName)"
-    }
+    // MARK: - Agent Creation
 
     private func startNewAgent(prompt: String, directory: String) {
-        session = AgentManager.shared.createSession(
+        let session = AgentManager.shared.createSession(
             prompt: prompt,
             workingDirectory: directory
         )
-        updateContent()
+        showPanel(for: session)
+    }
+}
+
+// MARK: - Panel Close Delegate
+
+/// Helper class to handle panel close events
+private class PanelCloseDelegate: NSObject, NSWindowDelegate {
+    private let onClose: () -> Void
+
+    init(onClose: @escaping () -> Void) {
+        self.onClose = onClose
+        super.init()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        onClose()
     }
 }
 
