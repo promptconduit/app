@@ -14,6 +14,8 @@ class AgentSession: ObservableObject, Identifiable {
 
     private var ptySession: PTYSession?
     private var cancellables = Set<AnyCancellable>()
+    private var initialPromptSent = false
+    private var claudeReady = false
 
     init(id: UUID = UUID(), prompt: String, workingDirectory: String) {
         self.id = id
@@ -74,12 +76,8 @@ class AgentSession: ObservableObject, Identifiable {
         do {
             try ptySession?.spawn()
             status = .running
-
-            // Wait a moment for Claude to initialize, then send the prompt
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                guard let self = self, !self.prompt.isEmpty else { return }
-                self.sendPrompt(self.prompt)
-            }
+            // Initial prompt will be sent when we detect Claude is ready
+            // (see processOutput for detection logic)
         } catch {
             status = .failed
             addEntry(.system("Failed to start: \(error.localizedDescription)"))
@@ -87,7 +85,8 @@ class AgentSession: ObservableObject, Identifiable {
     }
 
     func sendPrompt(_ text: String) {
-        guard status == .running || status == .waiting else { return }
+        guard (status == .running || status == .waiting) && claudeReady else { return }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         addEntry(.user(text))
         ptySession?.sendLine(text)
@@ -116,8 +115,40 @@ class AgentSession: ObservableObject, Identifiable {
 
         lastActivity = Date()
 
-        // Check for status changes
-        if OutputParser.isWaitingForInput(newContent) {
+        let cleanOutput = OutputParser.stripANSI(output)
+
+        // Check if Claude is ready for input (look for prompt indicators in full output)
+        if !claudeReady {
+            // Claude is ready when we see its input prompt
+            // Look for patterns like "> Try" or the input cursor
+            let readyPatterns = [
+                "> Try",           // Suggestion prompt
+                "? for shortcuts", // Help hint
+                "❯ ",              // Prompt cursor
+            ]
+
+            for pattern in readyPatterns {
+                if cleanOutput.contains(pattern) {
+                    claudeReady = true
+                    break
+                }
+            }
+
+            // Send initial prompt once Claude is ready
+            if claudeReady && !initialPromptSent && !prompt.isEmpty {
+                initialPromptSent = true
+                // Small delay to ensure Claude's input is active
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self = self else { return }
+                    self.addEntry(.user(self.prompt))
+                    self.ptySession?.sendLine(self.prompt)
+                    self.status = .running
+                }
+            }
+        }
+
+        // Check for status changes (Claude waiting for more input)
+        if OutputParser.isWaitingForInput(newContent) && initialPromptSent {
             status = .waiting
         }
 
@@ -126,9 +157,9 @@ class AgentSession: ObservableObject, Identifiable {
             addEntry(.tool(toolUse.name, toolUse.target))
         }
 
-        // Add assistant response
+        // Add assistant response (only after initial prompt sent)
         let cleanContent = OutputParser.stripANSI(newContent)
-        if !cleanContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if !cleanContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && initialPromptSent {
             // Merge with last assistant entry if applicable
             if case .assistant = transcript.last?.type {
                 let lastIndex = transcript.count - 1
