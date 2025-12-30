@@ -112,9 +112,11 @@ class PTYSession: ObservableObject {
         }
     }
 
-    /// Sends a line of input followed by newline
+    /// Sends a line of input followed by carriage return (Enter key)
     func sendLine(_ line: String) {
-        send(line + "\n")
+        // Use \r (carriage return) as that's what Enter key sends in terminals
+        // Some TUI applications expect \r, not \n
+        send(line + "\r")
     }
 
     /// Terminates the PTY session
