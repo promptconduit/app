@@ -161,7 +161,7 @@ struct MenuBarPopoverView: View {
 
                 Spacer()
 
-                Button(action: { showSettings() }) {
+                SettingsLink {
                     Image(systemName: "gear")
                 }
                 .buttonStyle(.borderless)
@@ -174,10 +174,6 @@ struct MenuBarPopoverView: View {
     private func showNewAgent() {
         // TODO: Open new agent panel
         NotificationCenter.default.post(name: .showNewAgentPanel, object: nil)
-    }
-
-    private func showSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 }
 
