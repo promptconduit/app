@@ -12,6 +12,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBar()
         registerGlobalHotkey()
+        setupNotificationObservers()
 
         // Hide dock icon (menu bar app only)
         NSApp.setActivationPolicy(.accessory)
@@ -20,6 +21,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Cleanup PTY sessions
         AgentManager.shared.terminateAllSessions()
+
+        // Close all agent panels
+        agentPanelController?.closeAllPanels()
     }
 
     // MARK: - Menu Bar Setup
@@ -86,6 +90,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return menu
     }
 
+    // MARK: - Notification Observers
+
+    private func setupNotificationObservers() {
+        // Handle "New Agent" from menu bar popover
+        NotificationCenter.default.publisher(for: .showNewAgentPanel)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.showNewAgentPanel()
+            }
+            .store(in: &cancellables)
+
+        // Handle "Show Agent" from menu bar popover (clicking on existing agent)
+        NotificationCenter.default.publisher(for: .showAgentPanel)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                if let session = notification.object as? AgentSession {
+                    self?.showAgentPanel(for: session)
+                }
+            }
+            .store(in: &cancellables)
+    }
+
     // MARK: - Menu Actions
 
     @objc private func toggleMenu() {
@@ -96,7 +122,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if agentPanelController == nil {
             agentPanelController = AgentPanelController()
         }
-        agentPanelController?.showPanel()
+        agentPanelController?.showNewAgentPanel()
+    }
+
+    private func showAgentPanel(for session: AgentSession) {
+        if agentPanelController == nil {
+            agentPanelController = AgentPanelController()
+        }
+        agentPanelController?.showPanel(for: session)
     }
 
     @objc private func showReposWindow() {
