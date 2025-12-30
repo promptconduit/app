@@ -1,5 +1,60 @@
 import Foundation
 import Combine
+import AppKit
+
+/// Supported code editors for opening projects
+enum CodeEditor: String, CaseIterable, Codable, Identifiable {
+    case none
+    case vscode
+    case cursor
+    case xcode
+    case sublimeText
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .none: return "None"
+        case .vscode: return "VS Code"
+        case .cursor: return "Cursor"
+        case .xcode: return "Xcode"
+        case .sublimeText: return "Sublime Text"
+        }
+    }
+
+    var bundleIdentifier: String? {
+        switch self {
+        case .none: return nil
+        case .vscode: return "com.microsoft.VSCode"
+        case .cursor: return "com.todesktop.230313mzl4w4u92"
+        case .xcode: return "com.apple.dt.Xcode"
+        case .sublimeText: return "com.sublimetext.4"
+        }
+    }
+
+    /// Returns true if the editor is installed on the system
+    var isInstalled: Bool {
+        guard let bundleId = bundleIdentifier else { return false }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) != nil
+    }
+
+    /// Opens the specified directory in this editor
+    func open(directory: String) {
+        guard let bundleId = bundleIdentifier else { return }
+
+        let directoryURL = URL(fileURLWithPath: directory)
+
+        NSWorkspace.shared.open(
+            [directoryURL],
+            withApplicationAt: NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)!,
+            configuration: NSWorkspace.OpenConfiguration()
+        ) { _, error in
+            if let error = error {
+                print("Failed to open \(self.displayName): \(error)")
+            }
+        }
+    }
+}
 
 /// Represents a recently used repository
 struct RecentRepository: Codable, Identifiable, Equatable {
@@ -43,6 +98,10 @@ class SettingsService: ObservableObject {
         didSet { save() }
     }
 
+    @Published var preferredCodeEditor: CodeEditor {
+        didSet { save() }
+    }
+
     @Published private(set) var recentRepositories: [RecentRepository] = []
 
     // MARK: - Paths
@@ -82,6 +141,14 @@ class SettingsService: ObservableObject {
         self.notificationSoundEnabled = defaults.object(forKey: "notificationSoundEnabled") as? Bool ?? true
         self.globalHotkey = defaults.string(forKey: "globalHotkey") ?? "⌘⇧A"
 
+        // Load preferred code editor
+        if let editorString = defaults.string(forKey: "preferredCodeEditor"),
+           let editor = CodeEditor(rawValue: editorString) {
+            self.preferredCodeEditor = editor
+        } else {
+            self.preferredCodeEditor = .none
+        }
+
         // Load recent repositories
         if let data = defaults.data(forKey: "recentRepositories"),
            let repos = try? JSONDecoder().decode([RecentRepository].self, from: data) {
@@ -97,6 +164,7 @@ class SettingsService: ObservableObject {
         defaults.set(showInMenuBar, forKey: "showInMenuBar")
         defaults.set(notificationSoundEnabled, forKey: "notificationSoundEnabled")
         defaults.set(globalHotkey, forKey: "globalHotkey")
+        defaults.set(preferredCodeEditor.rawValue, forKey: "preferredCodeEditor")
     }
 
     private func saveRecentRepositories() {
