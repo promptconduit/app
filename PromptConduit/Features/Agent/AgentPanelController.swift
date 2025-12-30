@@ -534,6 +534,7 @@ struct AgentView: View {
                     text: $inputText,
                     isEnabled: session.status == .waiting || session.status == .running || session.status == .completed,
                     isRunning: session.status == .running,
+                    queueCount: session.messageQueue.count,
                     onSend: {
                         session.sendPrompt(inputText)
                         inputText = ""
@@ -541,6 +542,13 @@ struct AgentView: View {
                     onInterruptAndSend: {
                         session.interruptAndSend(inputText)
                         inputText = ""
+                    },
+                    onQueue: {
+                        session.queueMessage(inputText)
+                        inputText = ""
+                    },
+                    onClearQueue: {
+                        session.clearQueue()
                     }
                 )
             }

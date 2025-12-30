@@ -275,8 +275,11 @@ struct AgentInputBar: View {
     @Binding var text: String
     let isEnabled: Bool
     let isRunning: Bool
+    let queueCount: Int
     let onSend: () -> Void
     let onInterruptAndSend: () -> Void
+    let onQueue: () -> Void
+    let onClearQueue: () -> Void
 
     private var canSend: Bool {
         !text.isEmpty && isEnabled
@@ -287,71 +290,128 @@ struct AgentInputBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Text input
-            TextField(isRunning ? "Type to interrupt Claude..." : "Enter message...", text: $text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundColor(DesignTokens.textPrimary)
-                .padding(10)
-                .background(DesignTokens.backgroundCard)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(
-                            showInterruptMode ? DesignTokens.accentOrange.opacity(0.5) : DesignTokens.textMuted.opacity(0.3),
-                            lineWidth: 1
-                        )
-                )
-                .disabled(!isEnabled)
-                .onSubmit {
-                    if canSend {
-                        if isRunning {
-                            onInterruptAndSend()
-                        } else {
-                            onSend()
+        VStack(spacing: 0) {
+            // Queue indicator bar (shown when messages are queued)
+            if queueCount > 0 {
+                HStack(spacing: 8) {
+                    Image(systemName: "tray.full.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(DesignTokens.accentPurple)
+
+                    Text("\(queueCount) message\(queueCount == 1 ? "" : "s") queued")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(DesignTokens.textSecondary)
+
+                    Spacer()
+
+                    Button(action: onClearQueue) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 10))
+                            Text("Clear")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(DesignTokens.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear all queued messages")
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(DesignTokens.accentPurple.opacity(0.1))
+
+                Divider()
+                    .background(DesignTokens.textMuted.opacity(0.3))
+            }
+
+            HStack(spacing: 12) {
+                // Text input
+                TextField(isRunning ? "Type message (⏎ Queue, ⌘⏎ Interrupt)..." : "Enter message...", text: $text)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundColor(DesignTokens.textPrimary)
+                    .padding(10)
+                    .background(DesignTokens.backgroundCard)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(
+                                showInterruptMode ? DesignTokens.accentPurple.opacity(0.5) : DesignTokens.textMuted.opacity(0.3),
+                                lineWidth: 1
+                            )
+                    )
+                    .disabled(!isEnabled)
+                    .onSubmit {
+                        if canSend {
+                            if isRunning {
+                                // Enter key queues when running
+                                onQueue()
+                            } else {
+                                onSend()
+                            }
                         }
                     }
-                }
 
-            // Send / Interrupt & Send button
-            Button(action: {
-                if isRunning {
-                    onInterruptAndSend()
-                } else {
-                    onSend()
-                }
-            }) {
-                if showInterruptMode {
-                    // Interrupt & Send mode
-                    HStack(spacing: 6) {
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 11))
-                        Text("Send")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .foregroundColor(DesignTokens.backgroundPrimary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(DesignTokens.accentOrange)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else {
-                    // Normal send mode
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 14))
+                if isRunning && !text.isEmpty {
+                    // Queue button (primary action when running)
+                    Button(action: onQueue) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "tray.and.arrow.down.fill")
+                                .font(.system(size: 11))
+                            Text("Queue")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
                         .foregroundColor(DesignTokens.backgroundPrimary)
-                        .padding(10)
-                        .background(canSend ? DesignTokens.accentCyan : DesignTokens.textMuted)
-                        .clipShape(Circle())
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(DesignTokens.accentPurple)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
+                    .help("Queue message to send after Claude finishes")
+
+                    // Interrupt & Send button (secondary)
+                    Button(action: onInterruptAndSend) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 11))
+                            Text("Send Now")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(DesignTokens.accentOrange)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(DesignTokens.accentOrange.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(DesignTokens.accentOrange.opacity(0.5), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
+                    .help("Interrupt Claude and send immediately (⌘↩)")
+                } else {
+                    // Normal send button
+                    Button(action: onSend) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(DesignTokens.backgroundPrimary)
+                            .padding(10)
+                            .background(canSend ? DesignTokens.accentCyan : DesignTokens.textMuted)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
+                    .help("Send message")
                 }
             }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .help(showInterruptMode ? "Interrupt Claude and send your message" : "Send message")
-            .animation(.easeInOut(duration: 0.15), value: showInterruptMode)
+            .padding()
+            .background(DesignTokens.backgroundSecondary)
         }
-        .padding()
-        .background(DesignTokens.backgroundSecondary)
+        .animation(.easeInOut(duration: 0.15), value: isRunning)
+        .animation(.easeInOut(duration: 0.15), value: queueCount)
     }
 }
 

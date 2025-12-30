@@ -14,11 +14,16 @@ class AgentSession: ObservableObject, Identifiable {
             if status == .completed || status == .failed {
                 saveToHistory()
             }
+            // Process queued messages when Claude becomes ready
+            if status == .completed && !messageQueue.isEmpty {
+                processNextQueuedMessage()
+            }
         }
     }
     @Published private(set) var transcript: [TranscriptEntry] = []
     @Published private(set) var lastActivity: Date
     @Published private(set) var claudeSessionId: String?
+    @Published private(set) var messageQueue: [String] = []
 
     private var ptySession: PTYSession?
     private var cancellables = Set<AnyCancellable>()
@@ -228,6 +233,44 @@ class AgentSession: ObservableObject, Identifiable {
             // The process should have stopped or be stopping
             // Now send the follow-up prompt
             self.sendPrompt(text)
+        }
+    }
+
+    // MARK: - Message Queue
+
+    /// Queues a message to be sent when Claude finishes the current response
+    func queueMessage(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        messageQueue.append(trimmed)
+        addEntry(.system("Message queued (\(messageQueue.count) in queue)"))
+    }
+
+    /// Removes a message from the queue at the specified index
+    func removeQueuedMessage(at index: Int) {
+        guard index >= 0 && index < messageQueue.count else { return }
+        messageQueue.remove(at: index)
+    }
+
+    /// Clears all queued messages
+    func clearQueue() {
+        if !messageQueue.isEmpty {
+            messageQueue.removeAll()
+            addEntry(.system("Queue cleared"))
+        }
+    }
+
+    /// Processes the next message in the queue
+    private func processNextQueuedMessage() {
+        guard !messageQueue.isEmpty else { return }
+
+        let nextMessage = messageQueue.removeFirst()
+        addEntry(.system("Sending queued message (\(messageQueue.count) remaining)"))
+
+        // Small delay to ensure status change has propagated
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.sendPrompt(nextMessage)
         }
     }
 
