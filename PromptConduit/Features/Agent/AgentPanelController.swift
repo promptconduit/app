@@ -110,6 +110,38 @@ struct NewAgentView: View {
                 .font(.title)
                 .fontWeight(.semibold)
 
+            // Recent Repositories Section
+            if !settings.recentRepositories.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Recent Repositories")
+                            .font(.headline)
+                        Spacer()
+                        if settings.recentRepositories.count > 0 {
+                            Button("Clear") {
+                                settings.clearRecentRepositories()
+                            }
+                            .font(.caption)
+                            .buttonStyle(.link)
+                        }
+                    }
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(settings.recentRepositories.prefix(8)) { repo in
+                                RepoChip(
+                                    repo: repo,
+                                    isSelected: selectedDirectory == repo.path,
+                                    onTap: {
+                                        selectedDirectory = repo.path
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Working Directory
             VStack(alignment: .leading, spacing: 8) {
                 Text("Working Directory")
@@ -124,13 +156,13 @@ struct NewAgentView: View {
                     }
                 }
 
-                // Quick access to recent directories
-                if !settings.defaultProjectsDirectory.isEmpty {
+                // Quick access to default directory
+                if !settings.defaultProjectsDirectory.isEmpty && selectedDirectory != settings.defaultProjectsDirectory {
                     HStack {
                         Text("Default:")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Button(settings.defaultProjectsDirectory) {
+                        Button(shortenPath(settings.defaultProjectsDirectory)) {
                             selectedDirectory = settings.defaultProjectsDirectory
                         }
                         .buttonStyle(.link)
@@ -193,7 +225,7 @@ struct NewAgentView: View {
 
                 TextEditor(text: $prompt)
                     .font(.body)
-                    .frame(minHeight: 120)
+                    .frame(minHeight: 100)
                     .scrollContentBackground(.hidden)
                     .background(Color(NSColor.textBackgroundColor))
                     .cornerRadius(8)
@@ -213,6 +245,8 @@ struct NewAgentView: View {
                 .keyboardShortcut(.escape)
 
                 Button("Start Agent") {
+                    // Save to recent repositories
+                    settings.addRecentRepository(path: selectedDirectory)
                     onStart(prompt, selectedDirectory)
                 }
                 .keyboardShortcut(.return)
@@ -221,11 +255,15 @@ struct NewAgentView: View {
             }
         }
         .padding()
-        .frame(minWidth: 550, minHeight: 400)
+        .frame(minWidth: 550, minHeight: 480)
         .onAppear {
-            // Set default directory on appear
+            // Set default directory on appear (prefer most recent repo if available)
             if selectedDirectory.isEmpty {
-                selectedDirectory = settings.defaultProjectsDirectory
+                if let mostRecent = settings.recentRepositories.first {
+                    selectedDirectory = mostRecent.path
+                } else {
+                    selectedDirectory = settings.defaultProjectsDirectory
+                }
             }
         }
     }
@@ -236,14 +274,51 @@ struct NewAgentView: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
 
-        // Start from default directory
-        if settings.directoryExists(settings.defaultProjectsDirectory) {
+        // Start from current selection or default directory
+        if settings.directoryExists(selectedDirectory) {
+            panel.directoryURL = URL(fileURLWithPath: selectedDirectory)
+        } else if settings.directoryExists(settings.defaultProjectsDirectory) {
             panel.directoryURL = URL(fileURLWithPath: settings.defaultProjectsDirectory)
         }
 
         if panel.runModal() == .OK, let url = panel.url {
             selectedDirectory = url.path
         }
+    }
+
+    private func shortenPath(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if path.hasPrefix(home) {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
+    }
+}
+
+// MARK: - Repo Chip
+
+struct RepoChip: View {
+    let repo: RecentRepository
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                Image(systemName: "folder.fill")
+                    .font(.caption)
+                Text(repo.name)
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.2))
+            .foregroundColor(isSelected ? .white : .primary)
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+        .help(repo.path)
     }
 }
 

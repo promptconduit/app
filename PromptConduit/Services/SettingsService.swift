@@ -1,9 +1,25 @@
 import Foundation
 import Combine
 
+/// Represents a recently used repository
+struct RecentRepository: Codable, Identifiable, Equatable {
+    var id: String { path }
+    let path: String
+    let name: String
+    var lastUsed: Date
+
+    init(path: String) {
+        self.path = path
+        self.name = URL(fileURLWithPath: path).lastPathComponent
+        self.lastUsed = Date()
+    }
+}
+
 /// Manages app settings and user preferences
 class SettingsService: ObservableObject {
     static let shared = SettingsService()
+
+    private static let maxRecentRepos = 10
 
     // MARK: - Published Settings
 
@@ -26,6 +42,8 @@ class SettingsService: ObservableObject {
     @Published var globalHotkey: String {
         didSet { save() }
     }
+
+    @Published private(set) var recentRepositories: [RecentRepository] = []
 
     // MARK: - Paths
 
@@ -63,6 +81,12 @@ class SettingsService: ObservableObject {
         self.showInMenuBar = defaults.object(forKey: "showInMenuBar") as? Bool ?? true
         self.notificationSoundEnabled = defaults.object(forKey: "notificationSoundEnabled") as? Bool ?? true
         self.globalHotkey = defaults.string(forKey: "globalHotkey") ?? "⌘⇧A"
+
+        // Load recent repositories
+        if let data = defaults.data(forKey: "recentRepositories"),
+           let repos = try? JSONDecoder().decode([RecentRepository].self, from: data) {
+            self.recentRepositories = repos
+        }
     }
 
     // MARK: - Persistence
@@ -73,6 +97,48 @@ class SettingsService: ObservableObject {
         defaults.set(showInMenuBar, forKey: "showInMenuBar")
         defaults.set(notificationSoundEnabled, forKey: "notificationSoundEnabled")
         defaults.set(globalHotkey, forKey: "globalHotkey")
+    }
+
+    private func saveRecentRepositories() {
+        if let data = try? JSONEncoder().encode(recentRepositories) {
+            defaults.set(data, forKey: "recentRepositories")
+        }
+    }
+
+    // MARK: - Recent Repositories
+
+    /// Adds a repository to the recent list (or updates its last used time if already present)
+    func addRecentRepository(path: String) {
+        // Check if already exists
+        if let index = recentRepositories.firstIndex(where: { $0.path == path }) {
+            // Update last used time and move to top
+            var repo = recentRepositories.remove(at: index)
+            repo.lastUsed = Date()
+            recentRepositories.insert(repo, at: 0)
+        } else {
+            // Add new repo at top
+            let repo = RecentRepository(path: path)
+            recentRepositories.insert(repo, at: 0)
+
+            // Keep only the most recent N repos
+            if recentRepositories.count > Self.maxRecentRepos {
+                recentRepositories = Array(recentRepositories.prefix(Self.maxRecentRepos))
+            }
+        }
+
+        saveRecentRepositories()
+    }
+
+    /// Removes a repository from the recent list
+    func removeRecentRepository(path: String) {
+        recentRepositories.removeAll { $0.path == path }
+        saveRecentRepositories()
+    }
+
+    /// Clears all recent repositories
+    func clearRecentRepositories() {
+        recentRepositories.removeAll()
+        saveRecentRepositories()
     }
 
     // MARK: - Directory Validation
