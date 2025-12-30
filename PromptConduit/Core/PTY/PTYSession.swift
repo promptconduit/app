@@ -1,12 +1,10 @@
 import Foundation
-import Darwin
 
-/// Manages a pseudo-terminal session for running Claude Code CLI
+/// Manages a Claude Code CLI session in print mode
 class PTYSession: ObservableObject {
-    private var masterFD: Int32 = -1
-    private var childPID: pid_t = 0
-    private var readSource: DispatchSourceRead?
-    private let outputQueue = DispatchQueue(label: "com.promptconduit.pty.output")
+    private var process: Process?
+    private var outputPipe: Pipe?
+    private var errorPipe: Pipe?
 
     @Published var output: String = ""
     @Published var isRunning: Bool = false
@@ -14,6 +12,8 @@ class PTYSession: ObservableObject {
     let id: UUID
     let workingDirectory: String
     let createdAt: Date
+    private var sessionId: String?
+    private var isFirstPrompt = true
 
     init(id: UUID = UUID(), workingDirectory: String) {
         self.id = id
@@ -27,171 +27,123 @@ class PTYSession: ObservableObject {
 
     // MARK: - Session Lifecycle
 
-    /// Spawns the Claude CLI in a pseudo-terminal
-    func spawn() throws {
+    /// Runs Claude CLI with a prompt in print mode
+    func runPrompt(_ prompt: String) throws {
         guard !isRunning else {
             throw PTYError.alreadyRunning
         }
 
-        var winSize = winsize(
-            ws_row: 24,
-            ws_col: 120,
-            ws_xpixel: 0,
-            ws_ypixel: 0
-        )
+        output = "" // Clear previous output
 
-        childPID = forkpty(&masterFD, nil, nil, &winSize)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/claude")
+        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
 
-        if childPID == -1 {
-            throw PTYError.forkFailed(errno: errno)
+        // Build arguments
+        // --dangerously-skip-permissions allows file edits without prompts since user consented by using this app
+        var arguments = ["-p", "--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions"]
+
+        if !isFirstPrompt, let sid = sessionId {
+            arguments.append(contentsOf: ["--resume", sid])
         }
 
-        if childPID == 0 {
-            // Child process
-            if chdir(workingDirectory) != 0 {
-                _exit(1)
-            }
+        arguments.append(prompt)
+        process.arguments = arguments
 
-            // Set up environment
-            setenv("TERM", "xterm-256color", 1)
-            setenv("LANG", "en_US.UTF-8", 1)
+        // Set up environment
+        var env = ProcessInfo.processInfo.environment
+        env["TERM"] = "xterm-256color"
+        env["LANG"] = "en_US.UTF-8"
+        process.environment = env
 
-            // Preserve PATH from parent to find claude
-            if let path = ProcessInfo.processInfo.environment["PATH"] {
-                setenv("PATH", path, 1)
-            }
+        // Set up pipes for output capture
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
 
-            // Also check common homebrew paths
-            let currentPath: String
-            if let envPath = getenv("PATH") {
-                currentPath = String(cString: envPath)
-            } else {
-                currentPath = ""
-            }
-            let homebrewPaths = "/opt/homebrew/bin:/usr/local/bin"
-            setenv("PATH", "\(homebrewPaths):\(currentPath)", 1)
+        self.process = process
+        self.outputPipe = outputPipe
+        self.errorPipe = errorPipe
 
-            // Find claude in PATH and execute
-            let claudePaths = [
-                "/opt/homebrew/bin/claude",
-                "/usr/local/bin/claude",
-                "/usr/bin/claude"
-            ]
-
-            for claudePath in claudePaths {
-                // Create args array for execv
-                claudePath.withCString { pathPtr in
-                    "claude".withCString { namePtr in
-                        var args: [UnsafeMutablePointer<CChar>?] = [
-                            UnsafeMutablePointer(mutating: namePtr),
-                            nil
-                        ]
-                        _ = execv(pathPtr, &args)
-                    }
-                }
-            }
-
-            // If we get here, exec failed on all paths - write error and exit
-            let errorMsg = "Failed to execute claude (not found in PATH)\n"
-            write(STDERR_FILENO, errorMsg, errorMsg.count)
-            _exit(127)
-        }
-
-        // Parent process
-        isRunning = true
-        startReadingOutput()
-    }
-
-    /// Sends input to the PTY (as if user typed it)
-    func send(_ input: String) {
-        guard isRunning else { return }
-
-        let data = input.data(using: .utf8) ?? Data()
-        data.withUnsafeBytes { bytes in
-            _ = write(masterFD, bytes.baseAddress, bytes.count)
-        }
-    }
-
-    /// Sends a line of input followed by carriage return (Enter key)
-    func sendLine(_ line: String) {
-        // Use \r (carriage return) as that's what Enter key sends in terminals
-        // Some TUI applications expect \r, not \n
-        send(line + "\r")
-    }
-
-    /// Terminates the PTY session
-    func terminate() {
-        guard isRunning else { return }
-
-        readSource?.cancel()
-        readSource = nil
-
-        if childPID > 0 {
-            kill(childPID, SIGTERM)
-            var status: Int32 = 0
-            waitpid(childPID, &status, 0)
-        }
-
-        if masterFD != -1 {
-            close(masterFD)
-            masterFD = -1
-        }
-
-        isRunning = false
-    }
-
-    /// Sends Ctrl+C to interrupt current operation
-    func interrupt() {
-        send("\u{03}") // ASCII ETX (Ctrl+C)
-    }
-
-    // MARK: - Output Reading
-
-    private func startReadingOutput() {
-        let source = DispatchSource.makeReadSource(fileDescriptor: masterFD, queue: outputQueue)
-
-        source.setEventHandler { [weak self] in
-            self?.readAvailableOutput()
-        }
-
-        source.setCancelHandler { [weak self] in
-            guard let self = self else { return }
-            if self.masterFD != -1 {
-                close(self.masterFD)
-                self.masterFD = -1
-            }
-        }
-
-        readSource = source
-        source.resume()
-    }
-
-    private func readAvailableOutput() {
-        var buffer = [CChar](repeating: 0, count: 4096)
-        let bytesRead = read(masterFD, &buffer, buffer.count - 1)
-
-        if bytesRead > 0 {
-            buffer[Int(bytesRead)] = 0
-            if let str = String(cString: buffer, encoding: .utf8) {
-                DispatchQueue.main.async { [weak self] in
+        // Handle stdout
+        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if !data.isEmpty, let str = String(data: data, encoding: .utf8) {
+                DispatchQueue.main.async {
                     self?.output += str
                 }
             }
-        } else if bytesRead == 0 || (bytesRead < 0 && errno != EAGAIN) {
-            // EOF or error
-            DispatchQueue.main.async { [weak self] in
-                self?.isRunning = false
+        }
+
+        // Handle stderr (also capture as output)
+        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if !data.isEmpty, let str = String(data: data, encoding: .utf8) {
+                DispatchQueue.main.async {
+                    self?.output += str
+                }
             }
+        }
+
+        // Handle process termination
+        process.terminationHandler = { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.isRunning = false
+                self?.outputPipe?.fileHandleForReading.readabilityHandler = nil
+                self?.errorPipe?.fileHandleForReading.readabilityHandler = nil
+            }
+        }
+
+        do {
+            try process.run()
+            isRunning = true
+        } catch {
+            throw PTYError.forkFailed(errno: Int32(error._code))
         }
     }
 
-    // MARK: - Resize
+    /// Sets the session ID for follow-up prompts
+    func setSessionId(_ sid: String) {
+        self.sessionId = sid
+        self.isFirstPrompt = false
+    }
+
+    /// Legacy spawn method - now just initializes without running
+    func spawn() throws {
+        // No longer spawns interactive mode - use runPrompt() instead
+    }
+
+    /// Sends input to the process (not used in print mode)
+    func send(_ input: String) {
+        // Not used in print mode
+    }
+
+    /// Sends a line of input (not used in print mode)
+    func sendLine(_ line: String) {
+        // Not used in print mode
+    }
+
+    /// Terminates the session
+    func terminate() {
+        process?.terminate()
+        process = nil
+        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        errorPipe?.fileHandleForReading.readabilityHandler = nil
+        outputPipe = nil
+        errorPipe = nil
+        isRunning = false
+    }
+
+    /// Sends interrupt signal to the process
+    func interrupt() {
+        process?.interrupt()
+    }
+
+    // MARK: - Resize (not used in print mode)
 
     func resize(rows: UInt16, cols: UInt16) {
-        guard isRunning else { return }
-
-        var size = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
-        _ = ioctl(masterFD, TIOCSWINSZ, &size)
+        // Not used in print mode
     }
 }
 
@@ -205,11 +157,11 @@ enum PTYError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .alreadyRunning:
-            return "PTY session is already running"
+            return "Session is already running"
         case .forkFailed(let errno):
-            return "Failed to fork PTY: \(String(cString: strerror(errno)))"
+            return "Failed to start process: error \(errno)"
         case .notRunning:
-            return "PTY session is not running"
+            return "Session is not running"
         }
     }
 }

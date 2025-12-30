@@ -344,6 +344,18 @@ struct CommandChip: View {
     }
 }
 
+// MARK: - Design Tokens (shared with TranscriptView)
+
+private enum AgentDesignTokens {
+    static let backgroundPrimary = Color(red: 0.06, green: 0.09, blue: 0.16)
+    static let backgroundSecondary = Color(red: 0.12, green: 0.16, blue: 0.24)
+    static let backgroundCard = Color(red: 0.15, green: 0.19, blue: 0.27)
+    static let accentCyan = Color(red: 0.0, green: 0.83, blue: 0.67)
+    static let textPrimary = Color(red: 0.93, green: 0.94, blue: 0.96)
+    static let textSecondary = Color(red: 0.58, green: 0.63, blue: 0.73)
+    static let textMuted = Color(red: 0.4, green: 0.45, blue: 0.55)
+}
+
 // MARK: - Agent View
 
 struct AgentView: View {
@@ -351,26 +363,26 @@ struct AgentView: View {
     @State private var inputText: String = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            AgentHeaderView(session: session)
+        ZStack {
+            AgentDesignTokens.backgroundPrimary.ignoresSafeArea()
 
-            Divider()
+            VStack(spacing: 0) {
+                // Header
+                AgentHeaderView(session: session)
 
-            // Transcript
-            TranscriptView(entries: session.transcript, rawOutput: session.rawOutput)
+                // Transcript
+                TranscriptView(entries: session.transcript, rawOutput: session.rawOutput)
 
-            Divider()
-
-            // Input
-            AgentInputBar(
-                text: $inputText,
-                isEnabled: session.status == .waiting || session.status == .running,
-                onSend: {
-                    session.sendPrompt(inputText)
-                    inputText = ""
-                }
-            )
+                // Input - allow sending when completed too (for continuing conversation)
+                AgentInputBar(
+                    text: $inputText,
+                    isEnabled: session.status == .waiting || session.status == .running || session.status == .completed,
+                    onSend: {
+                        session.sendPrompt(inputText)
+                        inputText = ""
+                    }
+                )
+            }
         }
     }
 }
@@ -382,64 +394,69 @@ struct AgentHeaderView: View {
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(session.shortPrompt)
-                    .font(.headline)
+                    .font(.system(size: 14, weight: .semibold, design: .default))
+                    .foregroundColor(AgentDesignTokens.textPrimary)
                     .lineLimit(1)
 
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     // Status pill
-                    HStack(spacing: 4) {
+                    HStack(spacing: 5) {
                         Circle()
                             .fill(statusColor)
                             .frame(width: 8, height: 8)
                         Text(session.status.rawValue)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
+                    .foregroundColor(statusColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
                     .background(statusColor.opacity(0.15))
-                    .cornerRadius(8)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
 
                     Text("•")
-                        .foregroundColor(.secondary)
-                    Text(session.repoName)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(AgentDesignTokens.textMuted)
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 10))
+                        Text(session.repoName)
+                    }
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(AgentDesignTokens.textSecondary)
                 }
-                .font(.caption)
             }
 
             Spacer()
 
             HStack(spacing: 8) {
                 if session.status == .running || session.status == .waiting {
-                    Button(action: { session.interrupt() }) {
+                    Button(action: { session.stop() }) {
                         Image(systemName: "stop.fill")
-                            .foregroundColor(.red)
+                            .font(.system(size: 12))
+                            .foregroundColor(.white)
+                            .padding(8)
+                            .background(Color.red.opacity(0.8))
+                            .clipShape(Circle())
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
                     .help("Stop Agent")
-                }
-
-                if session.status == .completed || session.status == .failed {
-                    Button("Restart") {
-                        // TODO: Implement restart
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(true) // Not implemented yet
                 }
             }
         }
-        .padding()
-        .background(Color(NSColor.controlBackgroundColor))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(AgentDesignTokens.backgroundSecondary)
     }
 
     private var statusColor: Color {
         switch session.status {
-        case .idle: return .gray
-        case .running: return .green
-        case .waiting: return .yellow
-        case .completed: return .blue
-        case .failed: return .red
+        case .idle: return AgentDesignTokens.textMuted
+        case .running: return Color(red: 0.3, green: 0.85, blue: 0.5)
+        case .waiting: return Color(red: 0.95, green: 0.75, blue: 0.3)
+        case .completed: return AgentDesignTokens.accentCyan
+        case .failed: return Color(red: 0.95, green: 0.35, blue: 0.35)
         }
     }
 }
