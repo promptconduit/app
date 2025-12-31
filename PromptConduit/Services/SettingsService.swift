@@ -1,5 +1,60 @@
 import Foundation
 import Combine
+import AppKit
+
+/// Supported code editors for opening projects
+enum CodeEditor: String, CaseIterable, Codable, Identifiable {
+    case none
+    case vscode
+    case cursor
+    case xcode
+    case sublimeText
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .none: return "None"
+        case .vscode: return "VS Code"
+        case .cursor: return "Cursor"
+        case .xcode: return "Xcode"
+        case .sublimeText: return "Sublime Text"
+        }
+    }
+
+    var bundleIdentifier: String? {
+        switch self {
+        case .none: return nil
+        case .vscode: return "com.microsoft.VSCode"
+        case .cursor: return "com.todesktop.230313mzl4w4u92"
+        case .xcode: return "com.apple.dt.Xcode"
+        case .sublimeText: return "com.sublimetext.4"
+        }
+    }
+
+    /// Returns true if the editor is installed on the system
+    var isInstalled: Bool {
+        guard let bundleId = bundleIdentifier else { return false }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) != nil
+    }
+
+    /// Opens the specified directory in this editor
+    func open(directory: String) {
+        guard let bundleId = bundleIdentifier else { return }
+
+        let directoryURL = URL(fileURLWithPath: directory)
+
+        NSWorkspace.shared.open(
+            [directoryURL],
+            withApplicationAt: NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)!,
+            configuration: NSWorkspace.OpenConfiguration()
+        ) { _, error in
+            if let error = error {
+                print("Failed to open \(self.displayName): \(error)")
+            }
+        }
+    }
+}
 
 /// Represents a recently used repository
 struct RecentRepository: Codable, Identifiable, Equatable {
@@ -20,6 +75,7 @@ class SettingsService: ObservableObject {
     static let shared = SettingsService()
 
     private static let maxRecentRepos = 10
+    private static let maxSessionHistory = 50
 
     // MARK: - Published Settings
 
@@ -43,7 +99,12 @@ class SettingsService: ObservableObject {
         didSet { save() }
     }
 
+    @Published var preferredCodeEditor: CodeEditor {
+        didSet { save() }
+    }
+
     @Published private(set) var recentRepositories: [RecentRepository] = []
+    @Published private(set) var sessionHistory: [SessionHistory] = []
 
     // MARK: - Paths
 
@@ -82,10 +143,24 @@ class SettingsService: ObservableObject {
         self.notificationSoundEnabled = defaults.object(forKey: "notificationSoundEnabled") as? Bool ?? true
         self.globalHotkey = defaults.string(forKey: "globalHotkey") ?? "⌘⇧A"
 
+        // Load preferred code editor
+        if let editorString = defaults.string(forKey: "preferredCodeEditor"),
+           let editor = CodeEditor(rawValue: editorString) {
+            self.preferredCodeEditor = editor
+        } else {
+            self.preferredCodeEditor = .none
+        }
+
         // Load recent repositories
         if let data = defaults.data(forKey: "recentRepositories"),
            let repos = try? JSONDecoder().decode([RecentRepository].self, from: data) {
             self.recentRepositories = repos
+        }
+
+        // Load session history
+        if let data = defaults.data(forKey: "sessionHistory"),
+           let history = try? JSONDecoder().decode([SessionHistory].self, from: data) {
+            self.sessionHistory = history
         }
     }
 
@@ -97,6 +172,7 @@ class SettingsService: ObservableObject {
         defaults.set(showInMenuBar, forKey: "showInMenuBar")
         defaults.set(notificationSoundEnabled, forKey: "notificationSoundEnabled")
         defaults.set(globalHotkey, forKey: "globalHotkey")
+        defaults.set(preferredCodeEditor.rawValue, forKey: "preferredCodeEditor")
     }
 
     private func saveRecentRepositories() {
@@ -152,5 +228,80 @@ class SettingsService: ObservableObject {
         if !directoryExists(path) {
             try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         }
+    }
+
+    // MARK: - Session History
+
+    private func saveSessionHistory() {
+        if let data = try? JSONEncoder().encode(sessionHistory) {
+            defaults.set(data, forKey: "sessionHistory")
+        }
+    }
+
+    /// Saves a completed session to history
+    func saveSession(
+        sessionId: String,
+        repositoryPath: String,
+        prompt: String,
+        createdAt: Date,
+        lastActivity: Date,
+        status: SessionHistoryStatus,
+        messageCount: Int
+    ) {
+        // Check if session already exists (update it)
+        if let index = sessionHistory.firstIndex(where: { $0.sessionId == sessionId }) {
+            sessionHistory[index].lastActivity = lastActivity
+            sessionHistory[index].status = status
+            sessionHistory[index].messageCount = messageCount
+        } else {
+            // Add new session at the beginning
+            let history = SessionHistory(
+                sessionId: sessionId,
+                repositoryPath: repositoryPath,
+                prompt: prompt,
+                createdAt: createdAt,
+                lastActivity: lastActivity,
+                status: status,
+                messageCount: messageCount
+            )
+            sessionHistory.insert(history, at: 0)
+
+            // Keep only the most recent N sessions
+            if sessionHistory.count > Self.maxSessionHistory {
+                sessionHistory = Array(sessionHistory.prefix(Self.maxSessionHistory))
+            }
+        }
+
+        saveSessionHistory()
+    }
+
+    /// Gets sessions for a specific repository, sorted by most recent first
+    func sessionsForRepository(path: String) -> [SessionHistory] {
+        sessionHistory
+            .filter { $0.repositoryPath == path }
+            .sorted { $0.lastActivity > $1.lastActivity }
+    }
+
+    /// Gets the most recent session for a repository (if any)
+    func mostRecentSession(forRepository path: String) -> SessionHistory? {
+        sessionsForRepository(path: path).first
+    }
+
+    /// Removes a session from history
+    func removeSession(sessionId: String) {
+        sessionHistory.removeAll { $0.sessionId == sessionId }
+        saveSessionHistory()
+    }
+
+    /// Clears all session history
+    func clearSessionHistory() {
+        sessionHistory.removeAll()
+        saveSessionHistory()
+    }
+
+    /// Clears session history for a specific repository
+    func clearSessionHistory(forRepository path: String) {
+        sessionHistory.removeAll { $0.repositoryPath == path }
+        saveSessionHistory()
     }
 }

@@ -1,18 +1,26 @@
 import AppKit
 import SwiftUI
 
-/// Controls the floating agent panel window
+/// Manages all agent panel windows - each agent gets its own window
 class AgentPanelController {
-    private var panel: NSPanel?
-    private var session: AgentSession?
+    /// Tracks all open panels by session ID
+    private var panels: [UUID: NSPanel] = [:]
 
-    init() {
-        setupPanel()
-    }
+    /// Panel for creating new agents (separate from session panels)
+    private var newAgentPanel: NSPanel?
 
-    // MARK: - Panel Setup
+    /// Panel for browsing repositories
+    private var repositoriesPanel: NSPanel?
 
-    private func setupPanel() {
+    /// Counter for cascading window positions
+    private var windowOffset: Int = 0
+
+    init() {}
+
+    // MARK: - Panel Creation
+
+    /// Creates a new floating panel with standard configuration
+    private func createPanel() -> NSPanel {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
             styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel],
@@ -26,68 +34,216 @@ class AgentPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false
-
-        // Minimum size
         panel.minSize = NSSize(width: 400, height: 300)
 
-        // Position in top-right quadrant
+        // Position with cascade offset for multiple windows
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
             let panelFrame = panel.frame
-            let x = screenFrame.maxX - panelFrame.width - 20
-            let y = screenFrame.maxY - panelFrame.height - 20
+            let cascadeOffset = CGFloat(windowOffset * 30)
+            let x = screenFrame.maxX - panelFrame.width - 20 - cascadeOffset
+            let y = screenFrame.maxY - panelFrame.height - 20 - cascadeOffset
             panel.setFrameOrigin(NSPoint(x: x, y: y))
+
+            windowOffset = (windowOffset + 1) % 5  // Reset after 5 windows
         }
 
-        self.panel = panel
+        return panel
     }
 
     // MARK: - Panel Control
 
-    func showPanel(with session: AgentSession? = nil) {
-        if let session = session {
-            self.session = session
-            updateContent()
-        } else {
-            showNewAgentView()
+    /// Shows a new agent creation window
+    func showNewAgentPanel() {
+        // Always create a fresh panel for new agent form
+        let panel = createPanel()
+        panel.title = "Start Session"
+
+        // Use new SessionLauncherView
+        let view = SessionLauncherView(
+            onStartNew: { [weak self, weak panel] prompt, directory in
+                // Close the launcher
+                panel?.close()
+                // Create and show the agent in a new window
+                self?.startNewAgent(prompt: prompt, directory: directory)
+            },
+            onResume: { [weak self, weak panel] sessionHistory in
+                // Close the launcher
+                panel?.close()
+                // Resume the session
+                self?.resumeAgent(from: sessionHistory)
+            },
+            onCancel: { [weak panel] in
+                panel?.close()
+            }
+        )
+        panel.contentView = NSHostingView(rootView: view)
+
+        // Make the panel slightly larger for the new UI
+        panel.setContentSize(NSSize(width: 620, height: 650))
+
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        newAgentPanel = panel
+    }
+
+    /// Shows the repositories browser panel
+    func showRepositoriesPanel() {
+        // Close existing repos panel if open
+        repositoriesPanel?.close()
+
+        let panel = createPanel()
+        panel.title = "Repositories"
+
+        let view = RepositoriesView(
+            onSelectRepo: { [weak self, weak panel] repo in
+                // Close repos panel and open new session launcher with this repo selected
+                panel?.close()
+                self?.showNewAgentPanelWithRepo(repo)
+            },
+            onResumeSession: { [weak self, weak panel] sessionHistory in
+                // Close repos panel and resume the session
+                panel?.close()
+                self?.resumeAgent(from: sessionHistory)
+            },
+            onNewSession: { [weak self, weak panel] repoPath in
+                // Close repos panel and open session launcher with this repo
+                panel?.close()
+                let repo = RecentRepository(path: repoPath)
+                self?.showNewAgentPanelWithRepo(repo)
+            },
+            onAddRepo: { [weak self, weak panel] in
+                // Show file picker to add a new repo
+                self?.selectAndAddRepository(parentPanel: panel)
+            },
+            onClose: { [weak panel] in
+                panel?.close()
+            }
+        )
+        panel.contentView = NSHostingView(rootView: view)
+
+        // Make the panel larger for the repos browser
+        panel.setContentSize(NSSize(width: 900, height: 600))
+
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        repositoriesPanel = panel
+    }
+
+    /// Shows a new agent creation window with a pre-selected repository
+    private func showNewAgentPanelWithRepo(_ repo: RecentRepository) {
+        // Add to recent repos
+        SettingsService.shared.addRecentRepository(path: repo.path)
+
+        // Show the normal new agent panel - it will auto-select the most recent repo
+        showNewAgentPanel()
+    }
+
+    /// Opens a file picker to add a new repository
+    private func selectAndAddRepository(parentPanel: NSPanel?) {
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseFiles = false
+        openPanel.canChooseDirectories = true
+        openPanel.allowsMultipleSelection = false
+        openPanel.message = "Select a repository folder"
+
+        if SettingsService.shared.directoryExists(SettingsService.shared.defaultProjectsDirectory) {
+            openPanel.directoryURL = URL(fileURLWithPath: SettingsService.shared.defaultProjectsDirectory)
         }
 
-        panel?.makeKeyAndOrderFront(nil)
+        openPanel.beginSheetModal(for: parentPanel ?? NSPanel()) { response in
+            if response == .OK, let url = openPanel.url {
+                SettingsService.shared.addRecentRepository(path: url.path)
+            }
+        }
+    }
+
+    /// Shows an existing agent session in its own window
+    func showPanel(for session: AgentSession) {
+        // Check if this session already has a panel
+        if let existingPanel = panels[session.id] {
+            existingPanel.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        // Create a new panel for this session
+        let panel = createPanel()
+        panel.title = "Agent: \(session.repoName)"
+
+        let view = AgentView(session: session)
+        panel.contentView = NSHostingView(rootView: view)
+
+        // Track this panel
+        panels[session.id] = panel
+
+        // Clean up when panel closes
+        panel.delegate = PanelCloseDelegate { [weak self] in
+            self?.panels.removeValue(forKey: session.id)
+        }
+
+        panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Legacy method for backward compatibility - shows new agent panel if no session
+    func showPanel(with session: AgentSession? = nil) {
+        if let session = session {
+            showPanel(for: session)
+        } else {
+            showNewAgentPanel()
+        }
+    }
+
     func hidePanel() {
-        panel?.orderOut(nil)
+        newAgentPanel?.orderOut(nil)
     }
 
     func closePanel() {
-        panel?.close()
+        newAgentPanel?.close()
     }
 
-    // MARK: - Content Management
-
-    private func showNewAgentView() {
-        let view = NewAgentView { [weak self] prompt, directory in
-            self?.startNewAgent(prompt: prompt, directory: directory)
+    /// Closes all panels
+    func closeAllPanels() {
+        for panel in panels.values {
+            panel.close()
         }
-        panel?.contentView = NSHostingView(rootView: view)
-        panel?.title = "New Agent"
+        panels.removeAll()
+        newAgentPanel?.close()
+        newAgentPanel = nil
     }
 
-    private func updateContent() {
-        guard let session = session else { return }
-
-        let view = AgentView(session: session)
-        panel?.contentView = NSHostingView(rootView: view)
-        panel?.title = "Agent: \(session.repoName)"
-    }
+    // MARK: - Agent Creation
 
     private func startNewAgent(prompt: String, directory: String) {
-        session = AgentManager.shared.createSession(
+        let session = AgentManager.shared.createSession(
             prompt: prompt,
             workingDirectory: directory
         )
-        updateContent()
+        showPanel(for: session)
+    }
+
+    private func resumeAgent(from history: SessionHistory) {
+        let session = AgentManager.shared.resumeSession(from: history)
+        showPanel(for: session)
+    }
+}
+
+// MARK: - Panel Close Delegate
+
+/// Helper class to handle panel close events
+private class PanelCloseDelegate: NSObject, NSWindowDelegate {
+    private let onClose: () -> Void
+
+    init(onClose: @escaping () -> Void) {
+        self.onClose = onClose
+        super.init()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        onClose()
     }
 }
 
@@ -377,9 +533,22 @@ struct AgentView: View {
                 AgentInputBar(
                     text: $inputText,
                     isEnabled: session.status == .waiting || session.status == .running || session.status == .completed,
+                    isRunning: session.status == .running,
+                    queueCount: session.messageQueue.count,
                     onSend: {
                         session.sendPrompt(inputText)
                         inputText = ""
+                    },
+                    onInterruptAndSend: {
+                        session.interruptAndSend(inputText)
+                        inputText = ""
+                    },
+                    onQueue: {
+                        session.queueMessage(inputText)
+                        inputText = ""
+                    },
+                    onClearQueue: {
+                        session.clearQueue()
                     }
                 )
             }
@@ -391,6 +560,7 @@ struct AgentView: View {
 
 struct AgentHeaderView: View {
     @ObservedObject var session: AgentSession
+    @ObservedObject private var settings = SettingsService.shared
 
     var body: some View {
         HStack {
@@ -425,6 +595,28 @@ struct AgentHeaderView: View {
                     }
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(AgentDesignTokens.textSecondary)
+
+                    // GitHub link button
+                    if let gitHubURL = session.gitHubURL {
+                        Button(action: { NSWorkspace.shared.open(gitHubURL) }) {
+                            Image(systemName: "link")
+                                .font(.system(size: 10))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(AgentDesignTokens.textSecondary)
+                        .help("Open on GitHub")
+                    }
+
+                    // Open in editor button
+                    if settings.preferredCodeEditor != .none {
+                        Button(action: { openInEditor() }) {
+                            Image(systemName: "curlybraces")
+                                .font(.system(size: 10))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(AgentDesignTokens.textSecondary)
+                        .help("Open in \(settings.preferredCodeEditor.displayName)")
+                    }
                 }
             }
 
@@ -448,6 +640,11 @@ struct AgentHeaderView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(AgentDesignTokens.backgroundSecondary)
+    }
+
+    private func openInEditor() {
+        let directory = session.workingDirectory
+        settings.preferredCodeEditor.open(directory: directory)
     }
 
     private var statusColor: Color {

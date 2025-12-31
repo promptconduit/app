@@ -109,6 +109,78 @@ class PTYSession: ObservableObject {
         self.isFirstPrompt = false
     }
 
+    /// Resumes a previous session using --continue
+    func runResume() throws {
+        guard !isRunning else {
+            throw PTYError.alreadyRunning
+        }
+        guard let sid = sessionId else {
+            throw PTYError.notRunning
+        }
+
+        output = "" // Clear previous output
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/claude")
+        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
+
+        // Use --continue to resume the session
+        let arguments = ["-p", "--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions", "--continue", sid]
+        process.arguments = arguments
+
+        // Set up environment
+        var env = ProcessInfo.processInfo.environment
+        env["TERM"] = "xterm-256color"
+        env["LANG"] = "en_US.UTF-8"
+        process.environment = env
+
+        // Set up pipes for output capture
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        self.process = process
+        self.outputPipe = outputPipe
+        self.errorPipe = errorPipe
+
+        // Handle stdout
+        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if !data.isEmpty, let str = String(data: data, encoding: .utf8) {
+                DispatchQueue.main.async {
+                    self?.output += str
+                }
+            }
+        }
+
+        // Handle stderr (also capture as output)
+        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if !data.isEmpty, let str = String(data: data, encoding: .utf8) {
+                DispatchQueue.main.async {
+                    self?.output += str
+                }
+            }
+        }
+
+        // Handle process termination
+        process.terminationHandler = { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.isRunning = false
+                self?.outputPipe?.fileHandleForReading.readabilityHandler = nil
+                self?.errorPipe?.fileHandleForReading.readabilityHandler = nil
+            }
+        }
+
+        do {
+            try process.run()
+            isRunning = true
+        } catch {
+            throw PTYError.forkFailed(errno: Int32(error._code))
+        }
+    }
+
     /// Legacy spawn method - now just initializes without running
     func spawn() throws {
         // No longer spawns interactive mode - use runPrompt() instead

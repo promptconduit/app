@@ -25,15 +25,7 @@ class AgentManager: ObservableObject {
             workingDirectory: workingDirectory
         )
 
-        // Observe session status changes
-        let cancellable = session.$status
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.lastStatusChange = Date()
-                self?.objectWillChange.send()
-            }
-        sessionCancellables[session.id] = cancellable
-
+        setupSessionObserver(session)
         sessions.append(session)
         activeSessionId = session.id
 
@@ -41,6 +33,36 @@ class AgentManager: ObservableObject {
         session.start()
 
         return session
+    }
+
+    /// Resumes a session from history
+    func resumeSession(from history: SessionHistory, withPrompt prompt: String? = nil) -> AgentSession {
+        // Create a session that will resume the previous conversation
+        let session = AgentSession(
+            prompt: prompt ?? "Continuing previous session...",
+            workingDirectory: history.repositoryPath,
+            resumeSessionId: history.sessionId
+        )
+
+        setupSessionObserver(session)
+        sessions.append(session)
+        activeSessionId = session.id
+
+        // Start with resume
+        session.startResume(originalPrompt: history.prompt)
+
+        return session
+    }
+
+    /// Sets up status change observer for a session
+    private func setupSessionObserver(_ session: AgentSession) {
+        let cancellable = session.$status
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.lastStatusChange = Date()
+                self?.objectWillChange.send()
+            }
+        sessionCancellables[session.id] = cancellable
     }
 
     /// Gets a session by ID
