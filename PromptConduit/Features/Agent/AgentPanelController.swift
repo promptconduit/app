@@ -238,9 +238,46 @@ class AgentPanelController {
 
     // MARK: - Terminal Launch
 
+    /// Creates a panel specifically for terminal use (can receive keyboard input)
+    private func createTerminalPanel() -> NSPanel {
+        // Terminal panel needs to be able to become key window for keyboard input
+        // So we don't use .nonactivatingPanel style
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled, .closable, .resizable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+
+        panel.title = "Claude Code"
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.isMovableByWindowBackground = false  // Don't interfere with terminal mouse events
+        panel.hidesOnDeactivate = false
+        panel.minSize = NSSize(width: 600, height: 400)
+
+        // Critical: Allow panel to become key window for keyboard input
+        panel.becomesKeyOnlyIfNeeded = false
+
+        // Position with cascade offset for multiple windows
+        if let screen = NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            let panelFrame = panel.frame
+            let cascadeOffset = CGFloat(windowOffset * 30)
+            let x = screenFrame.maxX - panelFrame.width - 20 - cascadeOffset
+            let y = screenFrame.maxY - panelFrame.height - 20 - cascadeOffset
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+
+            windowOffset = (windowOffset + 1) % 5
+        }
+
+        return panel
+    }
+
     /// Launches an embedded terminal with Claude Code
     private func launchTerminal(in directory: String) {
-        let panel = createPanel()
+        let panel = createTerminalPanel()
         let repoName = URL(fileURLWithPath: directory).lastPathComponent
         panel.title = "Claude Code - \(repoName)"
 
@@ -252,11 +289,8 @@ class AgentPanelController {
                 panel?.close()
             }
         )
-        panel.contentView = NSHostingView(rootView: view)
-
-        // Make the panel larger for terminal
-        panel.setContentSize(NSSize(width: 900, height: 700))
-        panel.minSize = NSSize(width: 600, height: 400)
+        let hostingView = NSHostingView(rootView: view)
+        panel.contentView = hostingView
 
         // Track this panel with a unique ID
         let terminalId = UUID()
@@ -267,8 +301,35 @@ class AgentPanelController {
             self?.panels.removeValue(forKey: terminalId)
         }
 
+        // Make panel key and activate app
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        // After a short delay, ensure the terminal view has focus
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            // Find the terminal view and make it first responder
+            if let terminalView = self.findTerminalView(in: hostingView) {
+                panel.makeFirstResponder(terminalView)
+            }
+        }
+    }
+
+    /// Recursively finds the LocalProcessTerminalView in the view hierarchy
+    private func findTerminalView(in view: NSView) -> NSView? {
+        // Check if this view is a terminal view (SwiftTerm's LocalProcessTerminalView)
+        let viewType = String(describing: type(of: view))
+        if viewType.contains("LocalProcessTerminalView") || viewType.contains("TerminalView") {
+            return view
+        }
+
+        // Recursively search subviews
+        for subview in view.subviews {
+            if let found = findTerminalView(in: subview) {
+                return found
+            }
+        }
+
+        return nil
     }
 }
 

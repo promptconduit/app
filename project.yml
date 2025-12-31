@@ -7,6 +7,11 @@ options:
   generateEmptyDirectories: true
   groupSortPosition: top
 
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: "1.2.0"
+
 settings:
   base:
     PRODUCT_NAME: PromptConduit
@@ -27,6 +32,8 @@ targets:
           - "**/*.xcassets"
     resources:
       - path: PromptConduit/Resources
+    dependencies:
+      - package: SwiftTerm
     settings:
       base:
         INFOPLIST_FILE: PromptConduit/Resources/Info.plist

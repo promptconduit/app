@@ -11,14 +11,33 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 
     init(
         workingDirectory: String,
-        command: String = "/usr/local/bin/claude",
+        command: String? = nil,
         arguments: [String] = ["--dangerously-skip-permissions"],
         onTerminated: (() -> Void)? = nil
     ) {
         self.workingDirectory = workingDirectory
-        self.command = command
+        self.command = command ?? Self.findClaudeExecutable()
         self.arguments = arguments
         self.onTerminated = onTerminated
+    }
+
+    /// Finds the claude executable in common installation paths
+    private static func findClaudeExecutable() -> String {
+        let possiblePaths = [
+            "/opt/homebrew/bin/claude",      // Apple Silicon Homebrew
+            "/usr/local/bin/claude",          // Intel Homebrew
+            "\(NSHomeDirectory())/.local/bin/claude", // npm global install
+            "/usr/bin/claude"                 // System install
+        ]
+
+        for path in possiblePaths {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+
+        // Fallback to just "claude" and let PATH resolve it
+        return "claude"
     }
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
@@ -36,11 +55,30 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         // Set the delegate for terminal events
         terminalView.processDelegate = context.coordinator
 
-        // Start the process
+        // Ensure the terminal can accept keyboard input
+        terminalView.becomeFirstResponder()
+
+        // Also request focus after a brief delay to handle window setup timing
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            terminalView.window?.makeFirstResponder(terminalView)
+        }
+
+        // Build environment with user's PATH
+        var environment = ProcessInfo.processInfo.environment
+        // Ensure common paths are in PATH for finding claude
+        if let existingPath = environment["PATH"] {
+            environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(existingPath)"
+        }
+
+        // Build shell command that changes to working directory then runs claude
+        // We use a shell to handle directory change since startProcess doesn't support it
+        let shellCommand = "cd \"\(workingDirectory)\" && \"\(command)\" \(arguments.joined(separator: " "))"
+
+        // Start the process via shell
         terminalView.startProcess(
-            executable: command,
-            args: arguments,
-            environment: nil,
+            executable: "/bin/zsh",
+            args: ["-l", "-c", shellCommand],
+            environment: Array(environment.map { "\($0.key)=\($0.value)" }),
             execName: nil
         )
 
