@@ -73,6 +73,12 @@ class AgentPanelController {
                 // Resume the session
                 self?.resumeAgent(from: sessionHistory)
             },
+            onLaunchTerminal: { [weak self, weak panel] directory in
+                // Close the launcher
+                panel?.close()
+                // Launch embedded terminal
+                self?.launchTerminal(in: directory)
+            },
             onCancel: { [weak panel] in
                 panel?.close()
             }
@@ -228,6 +234,41 @@ class AgentPanelController {
     private func resumeAgent(from history: SessionHistory) {
         let session = AgentManager.shared.resumeSession(from: history)
         showPanel(for: session)
+    }
+
+    // MARK: - Terminal Launch
+
+    /// Launches an embedded terminal with Claude Code
+    private func launchTerminal(in directory: String) {
+        let panel = createPanel()
+        let repoName = URL(fileURLWithPath: directory).lastPathComponent
+        panel.title = "Claude Code - \(repoName)"
+
+        // Create terminal session view
+        let view = TerminalSessionView(
+            repoName: repoName,
+            workingDirectory: directory,
+            onClose: { [weak panel] in
+                panel?.close()
+            }
+        )
+        panel.contentView = NSHostingView(rootView: view)
+
+        // Make the panel larger for terminal
+        panel.setContentSize(NSSize(width: 900, height: 700))
+        panel.minSize = NSSize(width: 600, height: 400)
+
+        // Track this panel with a unique ID
+        let terminalId = UUID()
+        panels[terminalId] = panel
+
+        // Clean up when panel closes
+        panel.delegate = PanelCloseDelegate { [weak self] in
+            self?.panels.removeValue(forKey: terminalId)
+        }
+
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 

@@ -24,6 +24,7 @@ private enum LauncherTokens {
 struct SessionLauncherView: View {
     let onStartNew: (String, String) -> Void
     let onResume: (SessionHistory) -> Void
+    let onLaunchTerminal: (String) -> Void  // Launch embedded terminal with directory
     let onCancel: () -> Void
 
     @ObservedObject private var settings = SettingsService.shared
@@ -331,28 +332,62 @@ struct SessionLauncherView: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        HStack(spacing: 12) {
-            Button("Cancel") {
-                onCancel()
-            }
-            .keyboardShortcut(.escape)
-            .buttonStyle(SecondaryButtonStyle())
-
-            Spacer()
-
+        VStack(spacing: 16) {
+            // Primary action: Launch Terminal (interactive Claude Code)
             Button(action: {
                 settings.addRecentRepository(path: effectiveDirectory)
-                onStartNew(prompt, effectiveDirectory)
+                onLaunchTerminal(effectiveDirectory)
             }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 11))
-                    Text("Start Agent")
+                HStack(spacing: 8) {
+                    Image(systemName: "terminal.fill")
+                        .font(.system(size: 14))
+                    Text("Launch Claude Code")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    LinearGradient(
+                        colors: [LauncherTokens.accentCyan, LauncherTokens.accentPurple],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+            .buttonStyle(.plain)
+            .disabled(effectiveDirectory.isEmpty)
+            .help("Open interactive Claude Code terminal in this repository")
+
+            // Secondary actions row
+            HStack(spacing: 12) {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.escape)
+                .buttonStyle(SecondaryButtonStyle())
+
+                Spacer()
+
+                // Text-based agent option (legacy/alternative)
+                if !prompt.isEmpty {
+                    Button(action: {
+                        settings.addRecentRepository(path: effectiveDirectory)
+                        onStartNew(prompt, effectiveDirectory)
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "text.bubble.fill")
+                                .font(.system(size: 11))
+                            Text("Start with Prompt")
+                        }
+                    }
+                    .keyboardShortcut(.return)
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(prompt.isEmpty || effectiveDirectory.isEmpty)
+                    .help("Start a text-based session with the prompt above")
                 }
             }
-            .keyboardShortcut(.return)
-            .buttonStyle(PrimaryButtonStyle())
-            .disabled(prompt.isEmpty || effectiveDirectory.isEmpty)
         }
     }
 

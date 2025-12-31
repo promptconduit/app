@@ -2,6 +2,53 @@ import Foundation
 import Combine
 import AppKit
 
+/// Supported terminal apps for launching Claude Code
+enum TerminalApp: String, CaseIterable, Codable, Identifiable {
+    case terminal       // macOS Terminal.app
+    case iterm2         // iTerm2
+    case warp           // Warp
+    case kitty          // Kitty
+    case alacritty      // Alacritty
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .terminal: return "Terminal"
+        case .iterm2: return "iTerm2"
+        case .warp: return "Warp"
+        case .kitty: return "Kitty"
+        case .alacritty: return "Alacritty"
+        }
+    }
+
+    var bundleIdentifier: String {
+        switch self {
+        case .terminal: return "com.apple.Terminal"
+        case .iterm2: return "com.googlecode.iterm2"
+        case .warp: return "dev.warp.Warp-Stable"
+        case .kitty: return "net.kovidgoyal.kitty"
+        case .alacritty: return "org.alacritty"
+        }
+    }
+
+    /// Returns true if the terminal app is installed on the system
+    var isInstalled: Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
+    }
+
+    /// Returns the first installed terminal app, defaulting to Terminal.app
+    static var defaultTerminal: TerminalApp {
+        // Terminal.app is always installed on macOS
+        .terminal
+    }
+
+    /// Returns all installed terminal apps
+    static var installedApps: [TerminalApp] {
+        allCases.filter { $0.isInstalled }
+    }
+}
+
 /// Supported code editors for opening projects
 enum CodeEditor: String, CaseIterable, Codable, Identifiable {
     case none
@@ -103,6 +150,10 @@ class SettingsService: ObservableObject {
         didSet { save() }
     }
 
+    @Published var preferredTerminalApp: TerminalApp {
+        didSet { save() }
+    }
+
     @Published private(set) var recentRepositories: [RecentRepository] = []
     @Published private(set) var sessionHistory: [SessionHistory] = []
 
@@ -151,6 +202,14 @@ class SettingsService: ObservableObject {
             self.preferredCodeEditor = .none
         }
 
+        // Load preferred terminal app
+        if let terminalString = defaults.string(forKey: "preferredTerminalApp"),
+           let terminal = TerminalApp(rawValue: terminalString) {
+            self.preferredTerminalApp = terminal
+        } else {
+            self.preferredTerminalApp = .terminal
+        }
+
         // Load recent repositories
         if let data = defaults.data(forKey: "recentRepositories"),
            let repos = try? JSONDecoder().decode([RecentRepository].self, from: data) {
@@ -173,6 +232,7 @@ class SettingsService: ObservableObject {
         defaults.set(notificationSoundEnabled, forKey: "notificationSoundEnabled")
         defaults.set(globalHotkey, forKey: "globalHotkey")
         defaults.set(preferredCodeEditor.rawValue, forKey: "preferredCodeEditor")
+        defaults.set(preferredTerminalApp.rawValue, forKey: "preferredTerminalApp")
     }
 
     private func saveRecentRepositories() {
