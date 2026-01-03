@@ -1,5 +1,7 @@
 import AppKit
 import SwiftUI
+import SwiftTerm
+import ObjectiveC
 
 /// Manages all agent panel windows - each agent gets its own window
 class AgentPanelController {
@@ -221,6 +223,33 @@ class AgentPanelController {
         newAgentPanel = nil
     }
 
+    /// Hides all agent panels without closing them
+    func hideAllPanels() {
+        for panel in panels.values {
+            panel.orderOut(nil)
+        }
+    }
+
+    /// Shows all agent panels
+    func showAllPanels() {
+        for panel in panels.values {
+            panel.orderFront(nil)
+        }
+    }
+
+    /// Toggles visibility of all agent panels, returns true if now hidden
+    @discardableResult
+    func toggleAllPanelsVisibility() -> Bool {
+        let shouldHide = !SettingsService.shared.allAgentsHidden
+        if shouldHide {
+            hideAllPanels()
+        } else {
+            showAllPanels()
+        }
+        SettingsService.shared.allAgentsHidden = shouldHide
+        return shouldHide
+    }
+
     // MARK: - Agent Creation
 
     private func startNewAgent(prompt: String, directory: String) {
@@ -239,10 +268,11 @@ class AgentPanelController {
     // MARK: - Terminal Launch
 
     /// Creates a panel specifically for terminal use (can receive keyboard input)
-    private func createTerminalPanel() -> NSPanel {
+    /// Uses TerminalPanel to intercept image paste (Cmd+V)
+    private func createTerminalPanel() -> TerminalPanel {
         // Terminal panel needs to be able to become key window for keyboard input
         // So we don't use .nonactivatingPanel style
-        let panel = NSPanel(
+        let panel = TerminalPanel(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
             styleMask: [.titled, .closable, .resizable, .utilityWindow],
             backing: .buffered,
@@ -296,20 +326,26 @@ class AgentPanelController {
         let terminalId = UUID()
         panels[terminalId] = panel
 
-        // Clean up when panel closes
-        panel.delegate = PanelCloseDelegate { [weak self] in
+        // Clean up when panel closes, and handle window events
+        let delegate = TerminalPanelDelegate { [weak self] in
             self?.panels.removeValue(forKey: terminalId)
         }
+        panel.delegate = delegate
+
+        // Keep a strong reference to delegate (panels dict keeps panel alive)
+        objc_setAssociatedObject(panel, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
 
         // Make panel key and activate app
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        // After a short delay, ensure the terminal view has focus
+        // After a short delay, ensure the terminal view has focus and store reference
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             // Find the terminal view and make it first responder
             if let terminalView = self.findTerminalView(in: hostingView) {
                 panel.makeFirstResponder(terminalView)
+                // Store terminal view reference in panel for paste handling
+                panel.terminalView = terminalView as? LocalProcessTerminalView
             }
         }
     }
@@ -749,13 +785,13 @@ struct AgentHeaderView: View {
         settings.preferredCodeEditor.open(directory: directory)
     }
 
-    private var statusColor: Color {
+    private var statusColor: SwiftUI.Color {
         switch session.status {
         case .idle: return AgentDesignTokens.textMuted
-        case .running: return Color(red: 0.3, green: 0.85, blue: 0.5)
-        case .waiting: return Color(red: 0.95, green: 0.75, blue: 0.3)
+        case .running: return SwiftUI.Color(red: 0.3, green: 0.85, blue: 0.5)
+        case .waiting: return SwiftUI.Color(red: 0.95, green: 0.75, blue: 0.3)
         case .completed: return AgentDesignTokens.accentCyan
-        case .failed: return Color(red: 0.95, green: 0.35, blue: 0.35)
+        case .failed: return SwiftUI.Color(red: 0.95, green: 0.35, blue: 0.35)
         }
     }
 }

@@ -154,6 +154,10 @@ class SettingsService: ObservableObject {
         didSet { save() }
     }
 
+    @Published var allAgentsHidden: Bool {
+        didSet { save() }
+    }
+
     @Published private(set) var recentRepositories: [RecentRepository] = []
     @Published private(set) var sessionHistory: [SessionHistory] = []
 
@@ -210,6 +214,9 @@ class SettingsService: ObservableObject {
             self.preferredTerminalApp = .terminal
         }
 
+        // Load agents hidden state
+        self.allAgentsHidden = defaults.bool(forKey: "allAgentsHidden")
+
         // Load recent repositories
         if let data = defaults.data(forKey: "recentRepositories"),
            let repos = try? JSONDecoder().decode([RecentRepository].self, from: data) {
@@ -233,6 +240,7 @@ class SettingsService: ObservableObject {
         defaults.set(globalHotkey, forKey: "globalHotkey")
         defaults.set(preferredCodeEditor.rawValue, forKey: "preferredCodeEditor")
         defaults.set(preferredTerminalApp.rawValue, forKey: "preferredTerminalApp")
+        defaults.set(allAgentsHidden, forKey: "allAgentsHidden")
     }
 
     private func saveRecentRepositories() {
