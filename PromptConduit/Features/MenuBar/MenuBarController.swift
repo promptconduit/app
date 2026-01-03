@@ -13,6 +13,7 @@ class MenuBarController: NSObject {
         super.init()
         setupStatusItem()
         observeAgentChanges()
+        observeExternalProcesses()
     }
 
     // MARK: - Setup
@@ -36,20 +37,30 @@ class MenuBarController: NSObject {
             .store(in: &cancellables)
     }
 
+    private func observeExternalProcesses() {
+        ProcessDetectionService.shared.$externalProcesses
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateStatusIcon()
+            }
+            .store(in: &cancellables)
+    }
+
     // MARK: - Status Icon
 
     private func updateStatusIcon() {
         guard let button = statusItem?.button else { return }
 
         let manager = AgentManager.shared
-        let hasActiveAgents = manager.runningCount > 0 || manager.waitingCount > 0
+        let externalCount = ProcessDetectionService.shared.externalProcesses.count
+        let hasActiveAgents = manager.runningCount > 0 || manager.waitingCount > 0 || externalCount > 0
 
         // Update icon based on state
         if manager.waitingCount > 0 {
             button.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "PromptConduit - Waiting")
             button.image?.isTemplate = false
             button.contentTintColor = .systemYellow
-        } else if manager.runningCount > 0 {
+        } else if manager.runningCount > 0 || externalCount > 0 {
             button.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "PromptConduit - Running")
             button.image?.isTemplate = false
             button.contentTintColor = .systemGreen
@@ -111,6 +122,11 @@ class MenuBarController: NSObject {
 
 struct MenuBarPopoverView: View {
     @ObservedObject private var agentManager = AgentManager.shared
+    @ObservedObject private var processService = ProcessDetectionService.shared
+
+    private var hasAnyAgents: Bool {
+        !agentManager.sessions.isEmpty || !processService.externalProcesses.isEmpty
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -129,7 +145,7 @@ struct MenuBarPopoverView: View {
             Divider()
 
             // Agent List
-            if agentManager.sessions.isEmpty {
+            if !hasAnyAgents {
                 VStack(spacing: 12) {
                     Image(systemName: "terminal")
                         .font(.largeTitle)
@@ -142,8 +158,24 @@ struct MenuBarPopoverView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(Array(agentManager.sessions.enumerated()), id: \.element.id) { index, session in
-                            AgentRowView(session: session, shortcut: index + 1)
+                        // Managed sessions (from PromptConduit)
+                        if !agentManager.sessions.isEmpty {
+                            SectionHeader(title: "Managed Agents")
+                            ForEach(Array(agentManager.sessions.enumerated()), id: \.element.id) { index, session in
+                                AgentRowView(session: session, shortcut: index + 1)
+                            }
+                        }
+
+                        // External Claude processes
+                        if !processService.externalProcesses.isEmpty {
+                            if !agentManager.sessions.isEmpty {
+                                Divider()
+                                    .padding(.vertical, 8)
+                            }
+                            SectionHeader(title: "External Claude Code")
+                            ForEach(processService.externalProcesses) { process in
+                                ExternalProcessRowView(process: process)
+                            }
                         }
                     }
                     .padding()
@@ -161,6 +193,13 @@ struct MenuBarPopoverView: View {
 
                 Spacer()
 
+                // Refresh button for external processes
+                Button(action: { processService.refreshProcesses() }) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .help("Refresh external processes")
+
                 SettingsLink {
                     Image(systemName: "gear")
                 }
@@ -174,6 +213,69 @@ struct MenuBarPopoverView: View {
     private func showNewAgent() {
         // TODO: Open new agent panel
         NotificationCenter.default.post(name: .showNewAgentPanel, object: nil)
+    }
+}
+
+// MARK: - Section Header
+
+struct SectionHeader: View {
+    let title: String
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .textCase(.uppercase)
+            Spacer()
+        }
+        .padding(.bottom, 4)
+    }
+}
+
+// MARK: - External Process Row View
+
+struct ExternalProcessRowView: View {
+    let process: ExternalClaudeProcess
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Status indicator - green dot for running
+            Text("🟢")
+                .font(.title2)
+
+            // Info
+            VStack(alignment: .leading, spacing: 2) {
+                Text(process.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                HStack(spacing: 4) {
+                    Text("PID: \(process.id)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    if let startTime = process.startTime {
+                        Text("•")
+                            .foregroundColor(.secondary)
+                        Text(startTime, style: .relative)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            Spacer()
+
+            // External indicator
+            Image(systemName: "arrow.up.right.square")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(8)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
     }
 }
 

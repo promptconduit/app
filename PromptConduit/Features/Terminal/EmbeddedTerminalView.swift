@@ -8,17 +8,20 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     let command: String
     let arguments: [String]
     let onTerminated: (() -> Void)?
+    let onTerminalReady: ((LocalProcessTerminalView) -> Void)?
 
     init(
         workingDirectory: String,
         command: String? = nil,
         arguments: [String] = ["--dangerously-skip-permissions"],
-        onTerminated: (() -> Void)? = nil
+        onTerminated: (() -> Void)? = nil,
+        onTerminalReady: ((LocalProcessTerminalView) -> Void)? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.command = command ?? Self.findClaudeExecutable()
         self.arguments = arguments
         self.onTerminated = onTerminated
+        self.onTerminalReady = onTerminalReady
     }
 
     /// Finds the claude executable in common installation paths
@@ -82,6 +85,11 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             execName: nil
         )
 
+        // Notify that terminal is ready
+        DispatchQueue.main.async {
+            self.onTerminalReady?(terminalView)
+        }
+
         return terminalView
     }
 
@@ -90,14 +98,16 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTerminated: onTerminated)
+        Coordinator(onTerminated: onTerminated, onTerminalReady: onTerminalReady)
     }
 
     class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
         let onTerminated: (() -> Void)?
+        let onTerminalReady: ((LocalProcessTerminalView) -> Void)?
 
-        init(onTerminated: (() -> Void)?) {
+        init(onTerminated: (() -> Void)?, onTerminalReady: ((LocalProcessTerminalView) -> Void)?) {
             self.onTerminated = onTerminated
+            self.onTerminalReady = onTerminalReady
         }
 
         // From LocalProcessTerminalViewDelegate (uses LocalProcessTerminalView)
@@ -129,8 +139,15 @@ struct TerminalSessionView: View {
     let repoName: String
     let workingDirectory: String
     let onClose: () -> Void
+    /// Callback to insert text into the terminal (set by parent for paste handling)
+    var onImageAttached: ((String) -> Void)?
 
     @State private var isTerminated = false
+    @State private var terminalView: LocalProcessTerminalView?
+    @State private var showingImagePicker = false
+    @State private var isDragOver = false
+
+    private let imageService = ImageAttachmentService.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -151,6 +168,16 @@ struct TerminalSessionView: View {
                 }
 
                 Spacer()
+
+                // Attach image button
+                Button(action: { showingImagePicker = true }) {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+                .help("Attach image (or drag & drop, or paste with \u{2318}V)")
+                .padding(.trailing, 8)
 
                 // Status indicator
                 HStack(spacing: 6) {
@@ -181,16 +208,135 @@ struct TerminalSessionView: View {
             Divider()
                 .background(SwiftUI.Color.gray.opacity(0.3))
 
-            // Terminal view
-            EmbeddedTerminalView(
-                workingDirectory: workingDirectory,
-                onTerminated: {
-                    isTerminated = true
+            // Terminal view with drag & drop overlay
+            ZStack {
+                EmbeddedTerminalView(
+                    workingDirectory: workingDirectory,
+                    onTerminated: {
+                        isTerminated = true
+                    },
+                    onTerminalReady: { terminal in
+                        terminalView = terminal
+                    }
+                )
+                .background(SwiftUI.Color.black)
+
+                // Drag overlay
+                if isDragOver {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(SwiftUI.Color.cyan, lineWidth: 3)
+                        .background(SwiftUI.Color.cyan.opacity(0.1))
+                        .padding(4)
                 }
-            )
-            .background(SwiftUI.Color.black)
+            }
+            .onDrop(of: [.image, .fileURL], isTargeted: $isDragOver) { providers in
+                handleDrop(providers: providers)
+            }
         }
         .background(SwiftUI.Color.black)
+        .fileImporter(
+            isPresented: $showingImagePicker,
+            allowedContentTypes: [.image, .png, .jpeg, .gif, .webP, .bmp, .tiff, .heic],
+            allowsMultipleSelection: true
+        ) { result in
+            handleFileImport(result)
+        }
+    }
+
+    // MARK: - Image Handling
+
+    /// Handles file drop from drag & drop
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        var handled = false
+
+        for provider in providers {
+            // Try to load as file URL first
+            if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+                provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
+                    if let data = item as? Data,
+                       let url = URL(dataRepresentation: data, relativeTo: nil),
+                       isImageFile(url) {
+                        DispatchQueue.main.async {
+                            attachImageFile(url)
+                        }
+                    }
+                }
+                handled = true
+            }
+            // Try to load as image data
+            else if provider.hasItemConformingToTypeIdentifier("public.image") {
+                provider.loadDataRepresentation(forTypeIdentifier: "public.image") { data, _ in
+                    if let data = data {
+                        DispatchQueue.main.async {
+                            attachImageData(data)
+                        }
+                    }
+                }
+                handled = true
+            }
+        }
+
+        return handled
+    }
+
+    /// Handles file import from file picker
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            for url in urls {
+                // Need to access security-scoped resource
+                guard url.startAccessingSecurityScopedResource() else { continue }
+                defer { url.stopAccessingSecurityScopedResource() }
+                attachImageFile(url)
+            }
+        case .failure(let error):
+            print("File import failed: \(error)")
+        }
+    }
+
+    /// Checks if a URL points to an image file
+    private func isImageFile(_ url: URL) -> Bool {
+        let imageExtensions = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "heic"]
+        return imageExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    /// Attaches an image file by copying to temp and inserting path
+    private func attachImageFile(_ url: URL) {
+        if let savedURL = imageService.copyImageFile(url) {
+            insertImagePath(savedURL)
+        }
+    }
+
+    /// Attaches image data by saving to temp and inserting path
+    private func attachImageData(_ data: Data) {
+        if let savedURL = imageService.saveImageData(data, fileExtension: "png") {
+            insertImagePath(savedURL)
+        }
+    }
+
+    /// Inserts the image path into the terminal
+    private func insertImagePath(_ url: URL) {
+        let formattedPath = imageService.formatPathForTerminal(url)
+        let textToInsert = " \(formattedPath) "
+
+        // Try using terminal view directly
+        if let terminal = terminalView {
+            terminal.send(txt: textToInsert)
+            // Restore focus to terminal
+            DispatchQueue.main.async {
+                terminal.window?.makeFirstResponder(terminal)
+            }
+        }
+
+        // Also notify parent (for paste handling coordination)
+        onImageAttached?(textToInsert)
+    }
+
+    /// Called by parent when paste contains an image
+    func handleImagePaste() {
+        if let savedURL = imageService.saveImageFromPasteboard() {
+            insertImagePath(savedURL)
+        }
     }
 }
 
