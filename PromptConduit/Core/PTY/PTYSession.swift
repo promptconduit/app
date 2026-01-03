@@ -87,7 +87,10 @@ class PTYSession: ObservableObject {
         }
 
         // Handle process termination
-        process.terminationHandler = { [weak self] _ in
+        process.terminationHandler = { [weak self] proc in
+            // Unregister the PID when process terminates
+            ProcessDetectionService.shared.unregisterManagedPID(proc.processIdentifier)
+
             DispatchQueue.main.async {
                 self?.isRunning = false
                 self?.outputPipe?.fileHandleForReading.readabilityHandler = nil
@@ -98,6 +101,9 @@ class PTYSession: ObservableObject {
         do {
             try process.run()
             isRunning = true
+
+            // Register the PID with ProcessDetectionService so it's excluded from external list
+            ProcessDetectionService.shared.registerManagedPID(process.processIdentifier)
         } catch {
             throw PTYError.forkFailed(errno: Int32(error._code))
         }
@@ -165,7 +171,10 @@ class PTYSession: ObservableObject {
         }
 
         // Handle process termination
-        process.terminationHandler = { [weak self] _ in
+        process.terminationHandler = { [weak self] proc in
+            // Unregister the PID when process terminates
+            ProcessDetectionService.shared.unregisterManagedPID(proc.processIdentifier)
+
             DispatchQueue.main.async {
                 self?.isRunning = false
                 self?.outputPipe?.fileHandleForReading.readabilityHandler = nil
@@ -176,6 +185,9 @@ class PTYSession: ObservableObject {
         do {
             try process.run()
             isRunning = true
+
+            // Register the PID with ProcessDetectionService so it's excluded from external list
+            ProcessDetectionService.shared.registerManagedPID(process.processIdentifier)
         } catch {
             throw PTYError.forkFailed(errno: Int32(error._code))
         }
@@ -198,6 +210,11 @@ class PTYSession: ObservableObject {
 
     /// Terminates the session
     func terminate() {
+        // Unregister the PID before terminating
+        if let pid = process?.processIdentifier {
+            ProcessDetectionService.shared.unregisterManagedPID(pid)
+        }
+
         process?.terminate()
         process = nil
         outputPipe?.fileHandleForReading.readabilityHandler = nil

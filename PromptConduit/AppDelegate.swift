@@ -6,6 +6,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var agentPanelController: AgentPanelController?
     private var cancellables = Set<AnyCancellable>()
+    private var hideShowAgentsMenuItem: NSMenuItem?
+
+    // Menu items that need dynamic updates
+    private var agentsMenuItems: [NSMenuItem] = []
+    private var noAgentsMenuItem: NSMenuItem?
 
     // MARK: - App Lifecycle
 
@@ -13,6 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenuBar()
         registerGlobalHotkey()
         setupNotificationObservers()
+        observeAgentChanges()
 
         // Hide dock icon (menu bar app only)
         NSApp.setActivationPolicy(.accessory)
@@ -33,6 +39,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let button = statusItem?.button {
             button.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "PromptConduit")
+            button.image?.isTemplate = true  // System-aware (white in dark mode, black in light mode)
             button.action = #selector(toggleMenu)
             button.target = self
         }
@@ -53,14 +60,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Active Agents Section
         let agentsHeader = NSMenuItem(title: "Active Agents", action: nil, keyEquivalent: "")
         agentsHeader.isEnabled = false
+        agentsHeader.tag = 100  // Tag to identify the header
         menu.addItem(agentsHeader)
 
-        // Placeholder for agents
+        // Placeholder for agents (will be updated dynamically)
         let noAgentsItem = NSMenuItem(title: "  No active agents", action: nil, keyEquivalent: "")
         noAgentsItem.isEnabled = false
+        noAgentsItem.tag = 101  // Tag to identify the placeholder
         menu.addItem(noAgentsItem)
+        self.noAgentsMenuItem = noAgentsItem
 
-        menu.addItem(NSMenuItem.separator())
+        // Separator after agents section
+        let agentsSeparator = NSMenuItem.separator()
+        agentsSeparator.tag = 102  // Tag to identify where agents section ends
+        menu.addItem(agentsSeparator)
 
         // Actions
         let newAgentItem = NSMenuItem(title: "New Agent...", action: #selector(showNewAgentPanel), keyEquivalent: "n")
@@ -72,6 +85,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         reposItem.keyEquivalentModifierMask = [.command, .shift]
         reposItem.target = self
         menu.addItem(reposItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // Hide/Show All Agents
+        let hideShowTitle = SettingsService.shared.allAgentsHidden ? "Show All Agents" : "Hide All Agents"
+        let hideShowItem = NSMenuItem(title: hideShowTitle, action: #selector(toggleAgentsVisibility), keyEquivalent: "h")
+        hideShowItem.target = self
+        menu.addItem(hideShowItem)
+        hideShowAgentsMenuItem = hideShowItem
 
         menu.addItem(NSMenuItem.separator())
 
@@ -112,6 +134,179 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
     }
 
+    // MARK: - Agent Change Observers
+
+    private func observeAgentChanges() {
+        // Observe managed agents (from PromptConduit)
+        AgentManager.shared.$sessions
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateAgentsMenu()
+            }
+            .store(in: &cancellables)
+
+        // Observe external Claude processes
+        ProcessDetectionService.shared.$externalProcesses
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateAgentsMenu()
+            }
+            .store(in: &cancellables)
+
+        // Trigger initial update
+        updateAgentsMenu()
+    }
+
+    private func updateAgentsMenu() {
+        guard let menu = statusItem?.menu else { return }
+
+        // Remove existing agent menu items
+        for item in agentsMenuItems {
+            menu.removeItem(item)
+        }
+        agentsMenuItems.removeAll()
+
+        // Find insertion point (after the "Active Agents" header, tag 100)
+        guard let headerIndex = menu.items.firstIndex(where: { $0.tag == 100 }) else { return }
+        var insertIndex = headerIndex + 1
+
+        let managedSessions = AgentManager.shared.sessions
+        let externalProcesses = ProcessDetectionService.shared.externalProcesses
+
+        let hasAnyAgents = !managedSessions.isEmpty || !externalProcesses.isEmpty
+
+        // Show/hide "No active agents" placeholder
+        noAgentsMenuItem?.isHidden = hasAnyAgents
+
+        if hasAnyAgents {
+            // Add managed sessions
+            for (index, session) in managedSessions.enumerated() {
+                let title = "  \(session.status.emoji) \(session.repoName)"
+                let item = NSMenuItem(title: title, action: #selector(selectManagedAgent(_:)), keyEquivalent: index < 9 ? "\(index + 1)" : "")
+                item.target = self
+                item.representedObject = session
+                if index < 9 {
+                    item.keyEquivalentModifierMask = .command
+                }
+                menu.insertItem(item, at: insertIndex)
+                agentsMenuItems.append(item)
+                insertIndex += 1
+            }
+
+            // Add separator between managed and external if both exist
+            if !managedSessions.isEmpty && !externalProcesses.isEmpty {
+                let sep = NSMenuItem.separator()
+                menu.insertItem(sep, at: insertIndex)
+                agentsMenuItems.append(sep)
+                insertIndex += 1
+
+                let externalHeader = NSMenuItem(title: "  External Claude Code", action: nil, keyEquivalent: "")
+                externalHeader.isEnabled = false
+                menu.insertItem(externalHeader, at: insertIndex)
+                agentsMenuItems.append(externalHeader)
+                insertIndex += 1
+            }
+
+            // Add external processes (clickable to focus parent app)
+            for process in externalProcesses {
+                let appSuffix = process.parentAppName.map { " (\($0))" } ?? ""
+                let title = "  🟢 \(process.displayName)\(appSuffix)"
+                let item = NSMenuItem(title: title, action: #selector(selectExternalProcess(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = process
+                menu.insertItem(item, at: insertIndex)
+                agentsMenuItems.append(item)
+                insertIndex += 1
+            }
+        }
+
+        // Update status icon
+        updateStatusIcon()
+    }
+
+    private func updateStatusIcon() {
+        guard let button = statusItem?.button else { return }
+
+        let manager = AgentManager.shared
+        let externalCount = ProcessDetectionService.shared.externalProcesses.count
+
+        if manager.waitingCount > 0 {
+            button.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "PromptConduit - Waiting")
+            button.image?.isTemplate = false  // Allow color tint
+            button.contentTintColor = .systemYellow
+        } else if manager.runningCount > 0 || externalCount > 0 {
+            button.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "PromptConduit - Running")
+            button.image?.isTemplate = false  // Allow color tint
+            button.contentTintColor = .systemGreen
+        } else {
+            // Idle - use template image (system-aware: white in dark mode, black in light mode)
+            button.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "PromptConduit")
+            button.image?.isTemplate = true
+            button.contentTintColor = nil
+        }
+    }
+
+    @objc private func selectManagedAgent(_ sender: NSMenuItem) {
+        guard let session = sender.representedObject as? AgentSession else { return }
+        AgentManager.shared.setActiveSession(session)
+        showAgentPanel(for: session)
+    }
+
+    @objc private func selectExternalProcess(_ sender: NSMenuItem) {
+        NSLog("[PromptConduit] selectExternalProcess called!")
+
+        guard let process = sender.representedObject as? ExternalClaudeProcess else {
+            NSLog("[PromptConduit] selectExternalProcess: No process in representedObject")
+            // Show alert for debugging
+            let alert = NSAlert()
+            alert.messageText = "Debug: No process found"
+            alert.informativeText = "representedObject is nil or wrong type"
+            alert.runModal()
+            return
+        }
+
+        NSLog("[PromptConduit] selectExternalProcess: %@, bundleId=%@, appName=%@", process.displayName, process.parentAppBundleId ?? "nil", process.parentAppName ?? "nil")
+
+        // Activate the parent application (Cursor, VS Code, Terminal, etc.)
+        // Use AppleScript for better Spaces/multiple desktop support
+        let appName = process.parentAppName ?? "Terminal"
+        activateAppWithAppleScript(appName)
+    }
+
+    /// Activates an app using AppleScript, which handles Spaces better than NSRunningApplication
+    private func activateAppWithAppleScript(_ appName: String) {
+        let script = """
+        tell application "\(appName)"
+            activate
+        end tell
+        """
+
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+            if let error = error {
+                NSLog("[PromptConduit] AppleScript error: %@", error)
+                // Fallback to NSRunningApplication
+                if let bundleId = bundleIdForAppName(appName) {
+                    let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+                    runningApps.first?.activate(options: [.activateIgnoringOtherApps])
+                }
+            }
+        }
+    }
+
+    /// Maps app names to bundle IDs for fallback activation
+    private func bundleIdForAppName(_ appName: String) -> String? {
+        switch appName {
+        case "Cursor": return "com.todesktop.230313mzl4w4u92"
+        case "VS Code", "Visual Studio Code": return "com.microsoft.VSCode"
+        case "Terminal": return "com.apple.Terminal"
+        case "iTerm", "iTerm2": return "com.googlecode.iterm2"
+        case "Warp": return "dev.warp.Warp-Stable"
+        default: return nil
+        }
+    }
+
     // MARK: - Menu Actions
 
     @objc private func toggleMenu() {
@@ -137,6 +332,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             agentPanelController = AgentPanelController()
         }
         agentPanelController?.showRepositoriesPanel()
+    }
+
+    @objc private func toggleAgentsVisibility() {
+        if agentPanelController == nil {
+            agentPanelController = AgentPanelController()
+        }
+        let isNowHidden = agentPanelController?.toggleAllPanelsVisibility() ?? false
+        hideShowAgentsMenuItem?.title = isNowHidden ? "Show All Agents" : "Hide All Agents"
     }
 
     @objc private func showSettings() {
