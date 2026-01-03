@@ -30,6 +30,7 @@ class ProcessDetectionService: ObservableObject {
 
     private var timer: Timer?
     private var managedPIDs: Set<Int32> = []
+    private var managedWorkingDirectories: Set<String> = []
 
     private init() {
         startMonitoring()
@@ -44,6 +45,18 @@ class ProcessDetectionService: ObservableObject {
     /// Unregister a PID when the managed session ends
     func unregisterManagedPID(_ pid: Int32) {
         managedPIDs.remove(pid)
+        refreshProcesses()
+    }
+
+    /// Register a working directory as managed by PromptConduit (to exclude from external list)
+    func registerManagedWorkingDirectory(_ directory: String) {
+        managedWorkingDirectories.insert(directory)
+        refreshProcesses()
+    }
+
+    /// Unregister a working directory when the managed session ends
+    func unregisterManagedWorkingDirectory(_ directory: String) {
+        managedWorkingDirectories.remove(directory)
         refreshProcesses()
     }
 
@@ -108,9 +121,12 @@ class ProcessDetectionService: ObservableObject {
             for line in output.components(separatedBy: "\n") {
                 if let process = parseProcessLine(line) {
                     // Exclude PIDs managed by PromptConduit
-                    if !managedPIDs.contains(process.id) {
-                        processes.append(process)
-                    }
+                    guard !managedPIDs.contains(process.id) else { continue }
+
+                    // Exclude processes with managed working directories (terminal sessions)
+                    guard !managedWorkingDirectories.contains(process.workingDirectory) else { continue }
+
+                    processes.append(process)
                 }
             }
         } catch {

@@ -139,6 +139,8 @@ struct TerminalSessionView: View {
     let repoName: String
     let workingDirectory: String
     let onClose: () -> Void
+    /// Callback when the process terminates naturally
+    var onTerminated: (() -> Void)?
     /// Callback to insert text into the terminal (set by parent for paste handling)
     var onImageAttached: ((String) -> Void)?
 
@@ -214,6 +216,7 @@ struct TerminalSessionView: View {
                     workingDirectory: workingDirectory,
                     onTerminated: {
                         isTerminated = true
+                        onTerminated?()
                     },
                     onTerminalReady: { terminal in
                         terminalView = terminal

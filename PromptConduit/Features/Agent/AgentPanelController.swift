@@ -311,23 +311,39 @@ class AgentPanelController {
         let repoName = URL(fileURLWithPath: directory).lastPathComponent
         panel.title = "Claude Code - \(repoName)"
 
-        // Create terminal session view
+        // Track this panel with a unique ID
+        let terminalId = UUID()
+
+        // Register session early with TerminalSessionManager
+        TerminalSessionManager.shared.registerSession(
+            id: terminalId,
+            repoName: repoName,
+            workingDirectory: directory
+        )
+
+        // Create terminal session view with callbacks
         let view = TerminalSessionView(
             repoName: repoName,
             workingDirectory: directory,
             onClose: { [weak panel] in
+                // Terminate session and clean up
+                TerminalSessionManager.shared.terminateSession(terminalId)
                 panel?.close()
+            },
+            onTerminated: {
+                // Process ended naturally - mark as terminated
+                TerminalSessionManager.shared.markTerminated(terminalId)
             }
         )
         let hostingView = NSHostingView(rootView: view)
         panel.contentView = hostingView
 
-        // Track this panel with a unique ID
-        let terminalId = UUID()
         panels[terminalId] = panel
 
         // Clean up when panel closes, and handle window events
         let delegate = TerminalPanelDelegate { [weak self] in
+            // Terminate session when window closes (handles window close button)
+            TerminalSessionManager.shared.terminateSession(terminalId)
             self?.panels.removeValue(forKey: terminalId)
         }
         panel.delegate = delegate
@@ -340,12 +356,17 @@ class AgentPanelController {
         NSApp.activate(ignoringOtherApps: true)
 
         // After a short delay, ensure the terminal view has focus and store reference
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self = self else { return }
             // Find the terminal view and make it first responder
             if let terminalView = self.findTerminalView(in: hostingView) {
                 panel.makeFirstResponder(terminalView)
                 // Store terminal view reference in panel for paste handling
-                panel.terminalView = terminalView as? LocalProcessTerminalView
+                if let localTerminalView = terminalView as? LocalProcessTerminalView {
+                    panel.terminalView = localTerminalView
+                    // Also store in session manager for potential termination
+                    TerminalSessionManager.shared.updateTerminalView(terminalId, terminalView: localTerminalView)
+                }
             }
         }
     }

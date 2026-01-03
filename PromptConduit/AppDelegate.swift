@@ -145,6 +145,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        // Observe terminal sessions (launched from PromptConduit)
+        TerminalSessionManager.shared.$sessions
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateAgentsMenu()
+            }
+            .store(in: &cancellables)
+
         // Observe external Claude processes
         ProcessDetectionService.shared.$externalProcesses
             .receive(on: DispatchQueue.main)
@@ -171,15 +179,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         var insertIndex = headerIndex + 1
 
         let managedSessions = AgentManager.shared.sessions
+        let terminalSessions = TerminalSessionManager.shared.sessions
         let externalProcesses = ProcessDetectionService.shared.externalProcesses
 
-        let hasAnyAgents = !managedSessions.isEmpty || !externalProcesses.isEmpty
+        let hasAnyAgents = !managedSessions.isEmpty || !terminalSessions.isEmpty || !externalProcesses.isEmpty
 
         // Show/hide "No active agents" placeholder
         noAgentsMenuItem?.isHidden = hasAnyAgents
 
         if hasAnyAgents {
-            // Add managed sessions
+            // Add managed sessions (PTY-based print mode)
             for (index, session) in managedSessions.enumerated() {
                 let title = "  \(session.status.emoji) \(session.repoName)"
                 let item = NSMenuItem(title: title, action: #selector(selectManagedAgent(_:)), keyEquivalent: index < 9 ? "\(index + 1)" : "")
@@ -193,8 +202,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 insertIndex += 1
             }
 
-            // Add separator between managed and external if both exist
-            if !managedSessions.isEmpty && !externalProcesses.isEmpty {
+            // Add terminal sessions (launched from PromptConduit)
+            for session in terminalSessions {
+                let statusEmoji = session.isRunning ? "🟢" : "🔴"
+                let title = "  \(statusEmoji) \(session.repoName) (PromptConduit)"
+                let item = NSMenuItem(title: title, action: #selector(selectTerminalSession(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = session
+                menu.insertItem(item, at: insertIndex)
+                agentsMenuItems.append(item)
+                insertIndex += 1
+            }
+
+            // Add separator between managed/terminal and external if both exist
+            let hasManagedOrTerminal = !managedSessions.isEmpty || !terminalSessions.isEmpty
+            if hasManagedOrTerminal && !externalProcesses.isEmpty {
                 let sep = NSMenuItem.separator()
                 menu.insertItem(sep, at: insertIndex)
                 agentsMenuItems.append(sep)
@@ -228,13 +250,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
 
         let manager = AgentManager.shared
+        let terminalRunningCount = TerminalSessionManager.shared.sessions.filter { $0.isRunning }.count
         let externalCount = ProcessDetectionService.shared.externalProcesses.count
 
         if manager.waitingCount > 0 {
             button.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "PromptConduit - Waiting")
             button.image?.isTemplate = false  // Allow color tint
             button.contentTintColor = .systemYellow
-        } else if manager.runningCount > 0 || externalCount > 0 {
+        } else if manager.runningCount > 0 || terminalRunningCount > 0 || externalCount > 0 {
             button.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "PromptConduit - Running")
             button.image?.isTemplate = false  // Allow color tint
             button.contentTintColor = .systemGreen
@@ -250,6 +273,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let session = sender.representedObject as? AgentSession else { return }
         AgentManager.shared.setActiveSession(session)
         showAgentPanel(for: session)
+    }
+
+    @objc private func selectTerminalSession(_ sender: NSMenuItem) {
+        guard sender.representedObject is TerminalSessionInfo else { return }
+
+        // Find and activate the terminal panel window
+        // The terminal panels are managed by AgentPanelController, so we activate PromptConduit
+        // which will bring all floating panels to front
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Also post notification to show the specific terminal panel if AgentPanelController supports it
+        // For now, activating the app will make the floating panel visible
     }
 
     @objc private func selectExternalProcess(_ sender: NSMenuItem) {
