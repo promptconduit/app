@@ -253,27 +253,55 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func selectExternalProcess(_ sender: NSMenuItem) {
-        guard let process = sender.representedObject as? ExternalClaudeProcess else { return }
+        NSLog("[PromptConduit] selectExternalProcess called!")
+
+        guard let process = sender.representedObject as? ExternalClaudeProcess else {
+            NSLog("[PromptConduit] selectExternalProcess: No process in representedObject")
+            // Show alert for debugging
+            let alert = NSAlert()
+            alert.messageText = "Debug: No process found"
+            alert.informativeText = "representedObject is nil or wrong type"
+            alert.runModal()
+            return
+        }
+
+        NSLog("[PromptConduit] selectExternalProcess: %@, bundleId=%@, appName=%@", process.displayName, process.parentAppBundleId ?? "nil", process.parentAppName ?? "nil")
 
         // Activate the parent application (Cursor, VS Code, Terminal, etc.)
         if let bundleId = process.parentAppBundleId {
             // Try to activate using NSWorkspace (works for most apps)
             if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+                NSLog("[PromptConduit] Found app at: %@", appURL.absoluteString)
                 let config = NSWorkspace.OpenConfiguration()
                 config.activates = true
                 NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, error in
-                    if error != nil {
+                    if let error = error {
+                        NSLog("[PromptConduit] Error activating app: %@", error.localizedDescription)
+                        DispatchQueue.main.async {
+                            let alert = NSAlert()
+                            alert.messageText = "Error activating app"
+                            alert.informativeText = error.localizedDescription
+                            alert.runModal()
+                        }
                         // Fallback: try launching by app name
                         if let appName = process.parentAppName {
                             NSWorkspace.shared.launchApplication(appName)
                         }
+                    } else {
+                        NSLog("[PromptConduit] Successfully activated app")
+                        // Play a sound to confirm
+                        NSSound.beep()
                     }
                 }
-            } else if let appName = process.parentAppName {
-                // Bundle ID not found, try by app name
-                NSWorkspace.shared.launchApplication(appName)
+            } else {
+                NSLog("[PromptConduit] Could not find app URL for bundle ID: %@", bundleId)
+                if let appName = process.parentAppName {
+                    // Bundle ID not found, try by app name
+                    NSWorkspace.shared.launchApplication(appName)
+                }
             }
         } else {
+            NSLog("[PromptConduit] No bundle ID, falling back to Terminal")
             // Fallback to Terminal if no parent app detected
             NSWorkspace.shared.launchApplication("Terminal")
         }
