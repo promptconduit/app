@@ -268,42 +268,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSLog("[PromptConduit] selectExternalProcess: %@, bundleId=%@, appName=%@", process.displayName, process.parentAppBundleId ?? "nil", process.parentAppName ?? "nil")
 
         // Activate the parent application (Cursor, VS Code, Terminal, etc.)
-        if let bundleId = process.parentAppBundleId {
-            // Try to activate using NSWorkspace (works for most apps)
-            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
-                NSLog("[PromptConduit] Found app at: %@", appURL.absoluteString)
-                let config = NSWorkspace.OpenConfiguration()
-                config.activates = true
-                NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, error in
-                    if let error = error {
-                        NSLog("[PromptConduit] Error activating app: %@", error.localizedDescription)
-                        DispatchQueue.main.async {
-                            let alert = NSAlert()
-                            alert.messageText = "Error activating app"
-                            alert.informativeText = error.localizedDescription
-                            alert.runModal()
-                        }
-                        // Fallback: try launching by app name
-                        if let appName = process.parentAppName {
-                            NSWorkspace.shared.launchApplication(appName)
-                        }
-                    } else {
-                        NSLog("[PromptConduit] Successfully activated app")
-                        // Play a sound to confirm
-                        NSSound.beep()
-                    }
-                }
-            } else {
-                NSLog("[PromptConduit] Could not find app URL for bundle ID: %@", bundleId)
-                if let appName = process.parentAppName {
-                    // Bundle ID not found, try by app name
-                    NSWorkspace.shared.launchApplication(appName)
+        // Use AppleScript for better Spaces/multiple desktop support
+        let appName = process.parentAppName ?? "Terminal"
+        activateAppWithAppleScript(appName)
+    }
+
+    /// Activates an app using AppleScript, which handles Spaces better than NSRunningApplication
+    private func activateAppWithAppleScript(_ appName: String) {
+        let script = """
+        tell application "\(appName)"
+            activate
+        end tell
+        """
+
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+            if let error = error {
+                NSLog("[PromptConduit] AppleScript error: %@", error)
+                // Fallback to NSRunningApplication
+                if let bundleId = bundleIdForAppName(appName) {
+                    let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+                    runningApps.first?.activate(options: [.activateIgnoringOtherApps])
                 }
             }
-        } else {
-            NSLog("[PromptConduit] No bundle ID, falling back to Terminal")
-            // Fallback to Terminal if no parent app detected
-            NSWorkspace.shared.launchApplication("Terminal")
+        }
+    }
+
+    /// Maps app names to bundle IDs for fallback activation
+    private func bundleIdForAppName(_ appName: String) -> String? {
+        switch appName {
+        case "Cursor": return "com.todesktop.230313mzl4w4u92"
+        case "VS Code", "Visual Studio Code": return "com.microsoft.VSCode"
+        case "Terminal": return "com.apple.Terminal"
+        case "iTerm", "iTerm2": return "com.googlecode.iterm2"
+        case "Warp": return "dev.warp.Warp-Stable"
+        default: return nil
         }
     }
 
