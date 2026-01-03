@@ -6,6 +6,8 @@ struct ExternalClaudeProcess: Identifiable, Hashable {
     let id: Int32  // Process ID
     let workingDirectory: String
     let startTime: Date?
+    let parentAppBundleId: String?  // e.g., "com.todesktop.230313mzl4w4u92" for Cursor
+    let parentAppName: String?  // e.g., "Cursor", "Terminal", "iTerm2"
 
     var displayName: String {
         URL(fileURLWithPath: workingDirectory).lastPathComponent
@@ -156,10 +158,15 @@ class ProcessDetectionService: ObservableObject {
         // Parse start time from lstart (format: "Day Mon DD HH:MM:SS YYYY")
         let startTime = parseStartTime(from: trimmed)
 
+        // Detect parent application (Cursor, VS Code, Terminal, iTerm, etc.)
+        let (bundleId, appName) = getParentApplication(for: pid)
+
         return ExternalClaudeProcess(
             id: pid,
             workingDirectory: workingDir,
-            startTime: startTime
+            startTime: startTime,
+            parentAppBundleId: bundleId,
+            parentAppName: appName
         )
     }
 
@@ -204,6 +211,91 @@ class ProcessDetectionService: ObservableObject {
     /// Uses kill(pid, 0) which tests if process exists without sending a signal
     private func isProcessAlive(_ pid: Int32) -> Bool {
         return kill(pid, 0) == 0
+    }
+
+    /// Get the parent application (Cursor, VS Code, Terminal, iTerm, etc.) for a process
+    /// Walks up the process tree to find the GUI application
+    private func getParentApplication(for pid: Int32) -> (bundleId: String?, appName: String?) {
+        var currentPid = pid
+
+        // Walk up the process tree (max 10 levels to avoid infinite loops)
+        for _ in 0..<10 {
+            // Get parent PID
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/bin/ps")
+            task.arguments = ["-p", String(currentPid), "-o", "ppid=,comm="]
+
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            task.standardError = FileHandle.nullDevice
+
+            do {
+                try task.run()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                task.waitUntilExit()
+
+                guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !output.isEmpty else { break }
+
+                let parts = output.split(separator: " ", maxSplits: 1)
+                guard parts.count >= 1, let ppid = Int32(parts[0]) else { break }
+
+                let comm = parts.count > 1 ? String(parts[1]) : ""
+
+                // Check if this is a known terminal/editor application
+                let commLower = comm.lowercased()
+
+                // Cursor (Electron-based)
+                if commLower.contains("cursor") {
+                    return ("com.todesktop.230313mzl4w4u92", "Cursor")
+                }
+
+                // VS Code
+                if commLower.contains("code") || commLower.contains("electron") && commLower.contains("code") {
+                    return ("com.microsoft.VSCode", "VS Code")
+                }
+
+                // Terminal.app
+                if commLower.contains("terminal") && !commLower.contains("helper") {
+                    return ("com.apple.Terminal", "Terminal")
+                }
+
+                // iTerm2
+                if commLower.contains("iterm") {
+                    return ("com.googlecode.iterm2", "iTerm2")
+                }
+
+                // Warp
+                if commLower.contains("warp") {
+                    return ("dev.warp.Warp-Stable", "Warp")
+                }
+
+                // Hyper
+                if commLower.contains("hyper") {
+                    return ("co.zeit.hyper", "Hyper")
+                }
+
+                // Alacritty
+                if commLower.contains("alacritty") {
+                    return ("org.alacritty", "Alacritty")
+                }
+
+                // Kitty
+                if commLower.contains("kitty") {
+                    return ("net.kovidgoyal.kitty", "Kitty")
+                }
+
+                // Stop at launchd (PID 1)
+                if ppid <= 1 { break }
+
+                currentPid = ppid
+            } catch {
+                break
+            }
+        }
+
+        // Fallback to Terminal.app
+        return ("com.apple.Terminal", "Terminal")
     }
 
     /// Parse start time from ps lstart output

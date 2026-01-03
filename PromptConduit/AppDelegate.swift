@@ -207,9 +207,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 insertIndex += 1
             }
 
-            // Add external processes (clickable to focus terminal)
+            // Add external processes (clickable to focus parent app)
             for process in externalProcesses {
-                let title = "  🟢 \(process.displayName)"
+                let appSuffix = process.parentAppName.map { " (\($0))" } ?? ""
+                let title = "  🟢 \(process.displayName)\(appSuffix)"
                 let item = NSMenuItem(title: title, action: #selector(selectExternalProcess(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = process
@@ -254,34 +255,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func selectExternalProcess(_ sender: NSMenuItem) {
         guard let process = sender.representedObject as? ExternalClaudeProcess else { return }
 
-        // Use AppleScript to activate Terminal and focus window with matching directory
-        let escapedDir = process.workingDirectory.replacingOccurrences(of: "\"", with: "\\\"")
-        let escapedName = process.displayName.replacingOccurrences(of: "\"", with: "\\\"")
-
-        let script = """
-        tell application "Terminal"
-            activate
-            set targetDir to "\(escapedDir)"
-            set targetName to "\(escapedName)"
-            repeat with w in windows
-                repeat with t in tabs of w
-                    try
-                        set tabTitle to custom title of t
-                        if tabTitle contains targetDir or tabTitle contains targetName then
-                            set selected of t to true
-                            set index of w to 1
-                            return
-                        end if
-                    end try
-                end repeat
-            end repeat
-        end tell
-        """
-
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-            // Even if AppleScript fails, Terminal is already activated
+        // Activate the parent application (Cursor, VS Code, Terminal, etc.)
+        if let bundleId = process.parentAppBundleId {
+            // Try to activate using NSWorkspace (works for most apps)
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+                let config = NSWorkspace.OpenConfiguration()
+                config.activates = true
+                NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, error in
+                    if error != nil {
+                        // Fallback: try launching by app name
+                        if let appName = process.parentAppName {
+                            NSWorkspace.shared.launchApplication(appName)
+                        }
+                    }
+                }
+            } else if let appName = process.parentAppName {
+                // Bundle ID not found, try by app name
+                NSWorkspace.shared.launchApplication(appName)
+            }
+        } else {
+            // Fallback to Terminal if no parent app detected
+            NSWorkspace.shared.launchApplication("Terminal")
         }
     }
 
