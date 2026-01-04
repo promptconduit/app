@@ -8,7 +8,7 @@ struct TerminalSessionInfo: Identifiable {
     let repoName: String
     let workingDirectory: String
     var isRunning: Bool
-    var isWaiting: Bool = false
+    var isWaiting: Bool = true  // Default to waiting (Claude starts ready for input)
     var groupId: UUID? = nil  // For multi-session groups
     weak var terminalView: LocalProcessTerminalView? = nil
     var outputMonitor: TerminalOutputMonitor? = nil
@@ -35,7 +35,36 @@ class TerminalSessionManager: ObservableObject {
         sessions.filter { $0.isRunning }.count
     }
 
-    private init() {}
+    private init() {
+        setupHookListening()
+    }
+
+    // MARK: - Hook Event Listening
+
+    private func setupHookListening() {
+        let hookService = HookNotificationService.shared
+
+        // Session started → waiting
+        hookService.onSessionStart = { [weak self] event in
+            self?.updateSessionStateFromCwd(event.cwd, isWaiting: true)
+        }
+
+        // User submitted prompt → running
+        hookService.onUserPromptSubmit = { [weak self] event in
+            self?.updateSessionStateFromCwd(event.cwd, isWaiting: false)
+        }
+
+        // Claude stopped → waiting
+        hookService.onStop = { [weak self] event in
+            self?.updateSessionStateFromCwd(event.cwd, isWaiting: true)
+        }
+    }
+
+    /// Update session state by matching working directory
+    private func updateSessionStateFromCwd(_ cwd: String, isWaiting: Bool) {
+        guard let session = sessions.first(where: { $0.workingDirectory == cwd }) else { return }
+        updateWaitingState(session.id, isWaiting: isWaiting)
+    }
 
     // MARK: - Session Management
 
@@ -49,7 +78,7 @@ class TerminalSessionManager: ObservableObject {
             repoName: repoName,
             workingDirectory: workingDirectory,
             isRunning: true,
-            isWaiting: false,
+            isWaiting: true,  // Default to waiting (Claude starts ready for input)
             groupId: groupId,
             outputMonitor: monitor
         )
