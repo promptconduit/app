@@ -33,10 +33,12 @@ class HookNotificationService: ObservableObject {
     /// Published events
     @Published private(set) var lastSessionStartEvent: SessionStartEvent?
     @Published private(set) var lastStopEvent: StopEvent?
+    @Published private(set) var lastUserPromptSubmitEvent: UserPromptSubmitEvent?
 
     // Callbacks
     var onSessionStart: ((SessionStartEvent) -> Void)?
     var onStop: ((StopEvent) -> Void)?
+    var onUserPromptSubmit: ((UserPromptSubmitEvent) -> Void)?
 
     private init() {}
 
@@ -128,8 +130,6 @@ class HookNotificationService: ObservableObject {
                         timestamp: Date()
                     )
                     lastSessionStartEvent = event
-                    debugLog("SessionStart event: \(event.cwd)")
-                    debugLog("onSessionStart callback: \(onSessionStart != nil ? "set" : "nil")")
                     onSessionStart?(event)
 
                 case "Stop":
@@ -139,8 +139,16 @@ class HookNotificationService: ObservableObject {
                         timestamp: Date()
                     )
                     lastStopEvent = event
-                    debugLog("Stop event: \(event.cwd)")
                     onStop?(event)
+
+                case "UserPromptSubmit":
+                    let event = UserPromptSubmitEvent(
+                        cwd: dict["cwd"] as? String ?? "",
+                        sessionId: dict["session_id"] as? String,
+                        timestamp: Date()
+                    )
+                    lastUserPromptSubmitEvent = event
+                    onUserPromptSubmit?(event)
 
                 default:
                     debugLog("Unknown event type: \(eventType)")
@@ -161,6 +169,12 @@ struct SessionStartEvent {
 }
 
 struct StopEvent {
+    let cwd: String
+    let sessionId: String?
+    let timestamp: Date
+}
+
+struct UserPromptSubmitEvent {
     let cwd: String
     let sessionId: String?
     let timestamp: Date
