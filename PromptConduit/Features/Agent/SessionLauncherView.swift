@@ -506,9 +506,6 @@ struct SessionLauncherView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 280)
-
-                Spacer()
             }
 
             // Multi-launch button
