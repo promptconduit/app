@@ -92,9 +92,26 @@ class TerminalSessionManager: ObservableObject {
 
     /// Updates the waiting state for a session
     func updateWaitingState(_ id: UUID, isWaiting: Bool) {
+        // Log to file for debugging
+        let logPath = "/tmp/promptconduit-terminal.log"
+        let logMsg = "[TSM] updateWaitingState called: id=\(id.uuidString.prefix(8)), isWaiting=\(isWaiting)\n"
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            handle.seekToEndOfFile()
+            handle.write(logMsg.data(using: .utf8)!)
+            handle.closeFile()
+        }
+
         // Ignore callbacks during cleanup to prevent crashes
         guard !isCleaningUp else { return }
-        guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else {
+            let errMsg = "[TSM] Session not found for id: \(id.uuidString.prefix(8))\n"
+            if let handle = FileHandle(forWritingAtPath: logPath) {
+                handle.seekToEndOfFile()
+                handle.write(errMsg.data(using: .utf8)!)
+                handle.closeFile()
+            }
+            return
+        }
 
         let wasWaiting = sessions[index].isWaiting
         sessions[index].isWaiting = isWaiting
@@ -102,6 +119,12 @@ class TerminalSessionManager: ObservableObject {
         // Send notification when transitioning to waiting state
         if isWaiting && !wasWaiting {
             let session = sessions[index]
+            let notifyMsg = "[TSM] SENDING NOTIFICATION for \(session.repoName)\n"
+            if let handle = FileHandle(forWritingAtPath: logPath) {
+                handle.seekToEndOfFile()
+                handle.write(notifyMsg.data(using: .utf8)!)
+                handle.closeFile()
+            }
             NotificationService.shared.notifyWaitingForInput(
                 sessionId: session.id,
                 repoName: session.repoName,
@@ -118,12 +141,26 @@ class TerminalSessionManager: ObservableObject {
 
     /// Process terminal output for waiting state detection
     func processOutput(_ id: UUID, text: String) {
+        // Log to file for debugging
+        let logPath = "/tmp/promptconduit-terminal.log"
+        let logMessage = "[TerminalSessionManager] processOutput called for session \(id.uuidString.prefix(8))\n"
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            handle.seekToEndOfFile()
+            handle.write(logMessage.data(using: .utf8)!)
+            handle.closeFile()
+        }
+
         // Ignore callbacks during cleanup to prevent crashes
         guard !isCleaningUp else { return }
         guard let index = sessions.firstIndex(where: { $0.id == id }) else {
             print("[TerminalSessionManager] processOutput: session \(id) not found")
             return
         }
+
+        // Debug: Log output processing
+        let cleanText = text.replacingOccurrences(of: "\n", with: "\\n").prefix(100)
+        print("[TerminalSessionManager] processOutput for \(sessions[index].repoName): '\(cleanText)'")
+
         sessions[index].outputMonitor?.processOutput(text)
     }
 

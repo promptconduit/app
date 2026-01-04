@@ -1,5 +1,20 @@
 import Foundation
 
+/// Log helper for OutputParser debugging
+private func parserLog(_ message: String) {
+    let logPath = "/tmp/promptconduit-terminal.log"
+    let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+    let line = "[Parser \(timestamp)] \(message)\n"
+
+    if let handle = FileHandle(forWritingAtPath: logPath) {
+        handle.seekToEndOfFile()
+        if let data = line.data(using: .utf8) {
+            handle.write(data)
+        }
+        handle.closeFile()
+    }
+}
+
 /// Parses and processes Claude CLI output
 class OutputParser {
     // Multiple ANSI escape patterns to catch all variations
@@ -61,45 +76,82 @@ class OutputParser {
     // MARK: - Pattern Detection
 
     /// Detects if the output indicates Claude is waiting for input
-    /// Checks if the buffer ENDS with a waiting pattern (not just contains)
+    /// For Claude Code TUI, patterns may appear anywhere in the buffer, not just at the end
     static func isWaitingForInput(_ text: String) -> Bool {
         let cleanText = stripANSI(text).trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Patterns that indicate Claude is waiting at the END of output
-        let endPatterns = [
-            "❯",           // Claude's primary prompt
-            "❯ ",          // Prompt with space
-            "> ",          // Simple prompt
+        // Debug: Log what we're checking
+        parserLog("isWaitingForInput - cleanText length: \(cleanText.count)")
+
+        // Check last 500 chars for Claude Code TUI patterns
+        let recentText = String(cleanText.suffix(500))
+        parserLog("isWaitingForInput - recentText (500 chars): '\(recentText.replacingOccurrences(of: "\n", with: "\\n").prefix(150))...'")
+
+        // First check for "busy" indicators - Claude is NOT waiting if these are present
+        let busyPatterns = [
+            "Thinking...",
+            "Loading...",
+            "Schlepping",     // Claude's quirky loading message
+            "· Reading",      // Tool in progress
+            "· Writing",      // Tool in progress
+            "· Editing",      // Tool in progress
+            "⏳",             // Loading spinner
         ]
 
-        // Check if output ends with a prompt pattern
-        for pattern in endPatterns {
-            if cleanText.hasSuffix(pattern) {
+        for pattern in busyPatterns {
+            if recentText.contains(pattern) {
+                parserLog("DETECTED busy pattern: '\(pattern)' - NOT waiting")
+                return false
+            }
+        }
+
+        // Claude Code TUI patterns that indicate ready for input
+        // Use regex to be more flexible with whitespace variations
+        let emptyPromptRegex = try? NSRegularExpression(pattern: "\\n>\\s*\\n", options: [])
+        if let regex = emptyPromptRegex {
+            let range = NSRange(recentText.startIndex..., in: recentText)
+            if regex.firstMatch(in: recentText, options: [], range: range) != nil {
+                parserLog("DETECTED empty prompt line with regex - WAITING for input")
                 return true
             }
         }
 
-        // Interactive prompts can appear anywhere near the end
+        // Also check for specific patterns
+        let readyPatterns = [
+            "> Try \"",        // Claude's suggestion prompt
+            "❯ ",              // Claude's terminal prompt
+            "❯",               // Claude's terminal prompt (no space)
+        ]
+
+        for pattern in readyPatterns {
+            if recentText.contains(pattern) {
+                parserLog("DETECTED ready pattern: '\(pattern)' - WAITING for input")
+                return true
+            }
+        }
+
+        // Interactive prompts that indicate waiting
         let interactivePatterns = [
-            "Continue?",   // Continue prompt
-            "(y/n)",       // Yes/No prompt
-            "(Y/n)",       // Default yes
-            "(y/N)",       // Default no
-            "[Y/n]",       // Bracket style
-            "[y/N]",       // Bracket style
-            "Press Enter", // Enter prompt
-            "Do you want", // Confirmation
-            "Would you like", // Confirmation
+            "Continue?",       // Continue prompt
+            "(y/n)",           // Yes/No prompt
+            "(Y/n)",           // Default yes
+            "(y/N)",           // Default no
+            "[Y/n]",           // Bracket style
+            "[y/N]",           // Bracket style
+            "Press Enter",     // Enter prompt
+            "Do you want",     // Confirmation
+            "Would you like",  // Confirmation
+            "confirm",         // Confirmation requests
         ]
 
-        // Check last ~100 chars for interactive prompts
-        let tail = String(cleanText.suffix(100))
         for pattern in interactivePatterns {
-            if tail.contains(pattern) {
+            if recentText.contains(pattern) {
+                parserLog("DETECTED interactive pattern: '\(pattern)' - WAITING for input")
                 return true
             }
         }
 
+        parserLog("No pattern matched, returning false")
         return false
     }
 

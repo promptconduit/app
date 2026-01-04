@@ -1,6 +1,22 @@
 import Foundation
 import Combine
 
+/// Log helper for TerminalOutputMonitor debugging
+private func monitorLog(_ message: String) {
+    let logPath = "/tmp/promptconduit-terminal.log"
+    let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+    let line = "[Monitor \(timestamp)] \(message)\n"
+
+    if let handle = FileHandle(forWritingAtPath: logPath) {
+        handle.seekToEndOfFile()
+        if let data = line.data(using: .utf8) {
+            handle.write(data)
+        }
+        handle.closeFile()
+    }
+    print("[Monitor] \(message)")
+}
+
 /// Monitors terminal output to detect when Claude is waiting for user input
 class TerminalOutputMonitor: ObservableObject {
     /// Current waiting state
@@ -38,6 +54,8 @@ class TerminalOutputMonitor: ObservableObject {
     /// Process new output from the terminal
     /// Call this method whenever new text appears in the terminal
     func processOutput(_ text: String) {
+        monitorLog("processOutput called with \(text.count) chars")
+
         // Append to buffer
         buffer += text
 
@@ -46,6 +64,7 @@ class TerminalOutputMonitor: ObservableObject {
             buffer = String(buffer.suffix(maxBufferSize))
         }
 
+        monitorLog("Buffer size: \(buffer.count), debouncing state check")
         // Debounce the state check
         debounceStateCheck()
     }
@@ -82,7 +101,9 @@ class TerminalOutputMonitor: ObservableObject {
 
     /// Manually trigger a state check
     func checkWaitingState() {
+        monitorLog("checkWaitingState called, buffer tail: '\(String(buffer.suffix(50)).replacingOccurrences(of: "\n", with: "\\n"))'")
         let detected = OutputParser.isWaitingForInput(buffer)
+        monitorLog("OutputParser.isWaitingForInput returned: \(detected)")
         updateWaitingState(detected)
     }
 
@@ -110,13 +131,19 @@ class TerminalOutputMonitor: ObservableObject {
     }
 
     private func updateWaitingState(_ newState: Bool) {
+        monitorLog("updateWaitingState called: newState=\(newState), lastNotifiedState=\(lastNotifiedState)")
         // Only notify on actual changes
-        guard newState != lastNotifiedState else { return }
+        guard newState != lastNotifiedState else {
+            monitorLog("State unchanged, skipping notification")
+            return
+        }
 
         lastNotifiedState = newState
+        monitorLog("State CHANGED to \(newState), notifying...")
 
         DispatchQueue.main.async { [weak self] in
             self?.isWaiting = newState
+            monitorLog("Calling onWaitingStateChanged callback with \(newState)")
             self?.onWaitingStateChanged?(newState)
         }
     }

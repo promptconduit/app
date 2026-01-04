@@ -1,6 +1,30 @@
 import SwiftTerm
 import AppKit
 
+/// File-based logger for debugging terminal output capture
+private func terminalLog(_ message: String) {
+    let logPath = "/tmp/promptconduit-terminal.log"
+    let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+    let line = "[\(timestamp)] \(message)\n"
+
+    // Create file if it doesn't exist
+    if !FileManager.default.fileExists(atPath: logPath) {
+        FileManager.default.createFile(atPath: logPath, contents: nil)
+    }
+
+    // Append to file
+    if let handle = FileHandle(forWritingAtPath: logPath) {
+        handle.seekToEndOfFile()
+        if let data = line.data(using: .utf8) {
+            handle.write(data)
+        }
+        handle.closeFile()
+    }
+
+    // Also print to console
+    print("[TerminalDebug] \(message)")
+}
+
 /// A LocalProcessTerminalView subclass that captures output for monitoring
 /// Used to detect when Claude is ready and when it's waiting for input
 class MonitoredTerminalView: LocalProcessTerminalView {
@@ -27,20 +51,24 @@ class MonitoredTerminalView: LocalProcessTerminalView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        print("[MonitoredTerminal] INIT - Terminal view created")
+        terminalLog("INIT - Terminal view created (frame)")
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        print("[MonitoredTerminal] INIT (coder) - Terminal view created")
+        terminalLog("INIT - Terminal view created (coder)")
     }
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
+        terminalLog("dataReceived called with \(slice.count) bytes")
+
         // Call parent to feed data to terminal
         super.dataReceived(slice: slice)
 
         // Convert to string and notify
         if let text = String(bytes: slice, encoding: .utf8) {
+            terminalLog("Converted to text: \(text.prefix(50).replacingOccurrences(of: "\n", with: "\\n"))...")
+
             // Update buffer
             outputBuffer += text
             if outputBuffer.count > maxBufferSize {
@@ -50,7 +78,7 @@ class MonitoredTerminalView: LocalProcessTerminalView {
             // Debug: Log output received
             let cleanText = stripANSI(text)
             if !cleanText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                print("[MonitoredTerminal] Output received (\(text.count) bytes): \(cleanText.prefix(100))...")
+                terminalLog("Output received (\(text.count) bytes): \(cleanText.prefix(100))...")
             }
 
             // Check for Claude ready state
@@ -59,7 +87,10 @@ class MonitoredTerminalView: LocalProcessTerminalView {
             }
 
             // Notify callback
+            terminalLog("Calling onDataReceived callback: \(onDataReceived != nil)")
             onDataReceived?(text)
+        } else {
+            terminalLog("Failed to convert bytes to UTF-8 string")
         }
     }
 

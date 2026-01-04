@@ -66,7 +66,23 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         terminalView.processDelegate = context.coordinator
 
         // Set up output monitoring callbacks
+        let logPath = "/tmp/promptconduit-terminal.log"
+        let setupMsg = "[EmbeddedTerminalView] Setting up callbacks - onOutputReceived: \(onOutputReceived != nil)\n"
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            handle.seekToEndOfFile()
+            handle.write(setupMsg.data(using: .utf8)!)
+            handle.closeFile()
+        }
+        print("[EmbeddedTerminalView] Setting up callbacks - onOutputReceived: \(onOutputReceived != nil)")
+
         terminalView.onDataReceived = { [onOutputReceived] text in
+            // Log that callback was triggered
+            let logMsg = "[EmbeddedTerminalView] onDataReceived callback triggered, forwarding to onOutputReceived: \(onOutputReceived != nil)\n"
+            if let handle = FileHandle(forWritingAtPath: logPath) {
+                handle.seekToEndOfFile()
+                handle.write(logMsg.data(using: .utf8)!)
+                handle.closeFile()
+            }
             onOutputReceived?(text)
         }
         terminalView.onClaudeReady = { [onClaudeReady] in
