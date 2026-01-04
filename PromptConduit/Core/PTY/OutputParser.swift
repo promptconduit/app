@@ -61,15 +61,46 @@ class OutputParser {
     // MARK: - Pattern Detection
 
     /// Detects if the output indicates Claude is waiting for input
+    /// Checks if the buffer ENDS with a waiting pattern (not just contains)
     static func isWaitingForInput(_ text: String) -> Bool {
-        let cleanText = stripANSI(text)
-        let patterns = [
-            "❯",           // Prompt indicator
+        let cleanText = stripANSI(text).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Patterns that indicate Claude is waiting at the END of output
+        let endPatterns = [
+            "❯",           // Claude's primary prompt
+            "❯ ",          // Prompt with space
             "> ",          // Simple prompt
+        ]
+
+        // Check if output ends with a prompt pattern
+        for pattern in endPatterns {
+            if cleanText.hasSuffix(pattern) {
+                return true
+            }
+        }
+
+        // Interactive prompts can appear anywhere near the end
+        let interactivePatterns = [
             "Continue?",   // Continue prompt
             "(y/n)",       // Yes/No prompt
+            "(Y/n)",       // Default yes
+            "(y/N)",       // Default no
+            "[Y/n]",       // Bracket style
+            "[y/N]",       // Bracket style
+            "Press Enter", // Enter prompt
+            "Do you want", // Confirmation
+            "Would you like", // Confirmation
         ]
-        return patterns.contains { cleanText.contains($0) }
+
+        // Check last ~100 chars for interactive prompts
+        let tail = String(cleanText.suffix(100))
+        for pattern in interactivePatterns {
+            if tail.contains(pattern) {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// Detects tool usage in output

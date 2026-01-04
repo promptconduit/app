@@ -20,6 +20,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotificationObservers()
         observeAgentChanges()
 
+        // Initialize notification service for waiting state alerts
+        NotificationService.shared.setup()
+
+        // Initialize hook notification service for CLI hook events
+        HookNotificationService.shared.startListening()
+
         // Hide dock icon (menu bar app only)
         NSApp.setActivationPolicy(.accessory)
     }
@@ -204,8 +210,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             // Add terminal sessions (launched from PromptConduit)
             for session in terminalSessions {
-                let statusEmoji = session.isRunning ? "🟢" : "🔴"
-                let title = "  \(statusEmoji) \(session.repoName) (PromptConduit)"
+                // Yellow emoji when waiting for input
+                let statusEmoji: String
+                if session.isWaiting {
+                    statusEmoji = "🟡"
+                } else if session.isRunning {
+                    statusEmoji = "🟢"
+                } else {
+                    statusEmoji = "🔴"
+                }
+                let waitingLabel = session.isWaiting ? " - Waiting" : ""
+                let title = "  \(statusEmoji) \(session.repoName)\(waitingLabel)"
                 let item = NSMenuItem(title: title, action: #selector(selectTerminalSession(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = session
@@ -250,10 +265,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
 
         let manager = AgentManager.shared
-        let terminalRunningCount = TerminalSessionManager.shared.sessions.filter { $0.isRunning }.count
+        let terminalManager = TerminalSessionManager.shared
+        let terminalRunningCount = terminalManager.sessions.filter { $0.isRunning }.count
+        let terminalWaitingCount = terminalManager.waitingCount
         let externalCount = ProcessDetectionService.shared.externalProcesses.count
 
-        if manager.waitingCount > 0 {
+        // Show yellow when any session is waiting for input (PTY or terminal)
+        if manager.waitingCount > 0 || terminalWaitingCount > 0 {
             button.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "PromptConduit - Waiting")
             button.image?.isTemplate = false  // Allow color tint
             button.contentTintColor = .systemYellow
@@ -276,15 +294,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func selectTerminalSession(_ sender: NSMenuItem) {
-        guard sender.representedObject is TerminalSessionInfo else { return }
+        guard let session = sender.representedObject as? TerminalSessionInfo else { return }
 
-        // Find and activate the terminal panel window
-        // The terminal panels are managed by AgentPanelController, so we activate PromptConduit
-        // which will bring all floating panels to front
-        NSApp.activate(ignoringOtherApps: true)
-
-        // Also post notification to show the specific terminal panel if AgentPanelController supports it
-        // For now, activating the app will make the floating panel visible
+        // Focus the specific terminal session
+        TerminalSessionManager.shared.focusSession(session.id)
     }
 
     @objc private func selectExternalProcess(_ sender: NSMenuItem) {

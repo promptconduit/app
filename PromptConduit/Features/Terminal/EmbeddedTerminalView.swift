@@ -10,19 +10,25 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     let arguments: [String]
     let onTerminated: (() -> Void)?
     let onTerminalReady: ((LocalProcessTerminalView) -> Void)?
+    let onOutputReceived: ((String) -> Void)?
+    let onClaudeReady: (() -> Void)?
 
     init(
         workingDirectory: String,
         command: String? = nil,
         arguments: [String] = ["--dangerously-skip-permissions"],
         onTerminated: (() -> Void)? = nil,
-        onTerminalReady: ((LocalProcessTerminalView) -> Void)? = nil
+        onTerminalReady: ((LocalProcessTerminalView) -> Void)? = nil,
+        onOutputReceived: ((String) -> Void)? = nil,
+        onClaudeReady: (() -> Void)? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.command = command ?? Self.findClaudeExecutable()
         self.arguments = arguments
         self.onTerminated = onTerminated
         self.onTerminalReady = onTerminalReady
+        self.onOutputReceived = onOutputReceived
+        self.onClaudeReady = onClaudeReady
     }
 
     /// Finds the claude executable in common installation paths
@@ -44,8 +50,8 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         return "claude"
     }
 
-    func makeNSView(context: Context) -> LocalProcessTerminalView {
-        let terminalView = LocalProcessTerminalView(frame: .zero)
+    func makeNSView(context: Context) -> MonitoredTerminalView {
+        let terminalView = MonitoredTerminalView(frame: .zero)
 
         // Configure terminal appearance with dark theme
         let bgColor = NSColor(red: 0.06, green: 0.09, blue: 0.16, alpha: 1.0)
@@ -58,6 +64,14 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 
         // Set the delegate for terminal events
         terminalView.processDelegate = context.coordinator
+
+        // Set up output monitoring callbacks
+        terminalView.onDataReceived = { [onOutputReceived] text in
+            onOutputReceived?(text)
+        }
+        terminalView.onClaudeReady = { [onClaudeReady] in
+            onClaudeReady?()
+        }
 
         // Ensure the terminal can accept keyboard input
         terminalView.becomeFirstResponder()
@@ -98,7 +112,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         return terminalView
     }
 
-    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
+    func updateNSView(_ nsView: MonitoredTerminalView, context: Context) {
         // Nothing to update dynamically for now
     }
 

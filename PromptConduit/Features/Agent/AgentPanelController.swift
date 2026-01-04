@@ -8,6 +8,9 @@ class AgentPanelController {
     /// Tracks all open panels by session ID
     private var panels: [UUID: NSPanel] = [:]
 
+    /// Tracks multi-terminal windows by group ID
+    private var multiTerminalWindows: [UUID: NSWindow] = [:]
+
     /// Panel for creating new agents (separate from session panels)
     private var newAgentPanel: NSPanel?
 
@@ -17,7 +20,39 @@ class AgentPanelController {
     /// Counter for cascading window positions
     private var windowOffset: Int = 0
 
-    init() {}
+    init() {
+        // Listen for focus session notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFocusSessionNotification(_:)),
+            name: .focusTerminalSession,
+            object: nil
+        )
+    }
+
+    @objc private func handleFocusSessionNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo else { return }
+
+        // Try to focus a specific group window
+        if let groupId = userInfo["groupId"] as? UUID {
+            focusMultiTerminalWindow(groupId)
+        }
+
+        // Also focus single terminal windows
+        if let sessionId = userInfo["sessionId"] as? UUID,
+           let panel = panels[sessionId] {
+            panel.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    /// Focus a multi-terminal window by group ID
+    func focusMultiTerminalWindow(_ groupId: UUID) {
+        if let window = multiTerminalWindows[groupId] {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
 
     // MARK: - Panel Creation
 
@@ -80,6 +115,12 @@ class AgentPanelController {
                 panel?.close()
                 // Launch embedded terminal
                 self?.launchTerminal(in: directory)
+            },
+            onLaunchMultiTerminal: { [weak self, weak panel] repositories, layout, initialPrompt in
+                // Close the launcher
+                panel?.close()
+                // Launch multi-terminal grid
+                self?.launchMultiTerminal(repositories: repositories, layout: layout, initialPrompt: initialPrompt)
             },
             onCancel: { [weak panel] in
                 panel?.close()
@@ -387,6 +428,86 @@ class AgentPanelController {
         }
 
         return nil
+    }
+
+    // MARK: - Multi-Terminal Launch
+
+    /// Launches a multi-terminal grid window with multiple repositories
+    private func launchMultiTerminal(repositories: [String], layout: GridLayout, initialPrompt: String?) {
+        // Create session group
+        let group = TerminalSessionManager.shared.createSessionGroup(
+            repositories: repositories,
+            layout: layout
+        )
+
+        // Calculate window size based on layout
+        let windowSize = layout.windowSize(for: repositories.count)
+
+        // Create window (use regular NSWindow, not NSPanel, for better keyboard handling)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: windowSize.width, height: windowSize.height),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+
+        window.title = "Claude Code - Multi-Session (\(repositories.count) repos)"
+        window.minSize = NSSize(width: 800, height: 400)
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        // Position window centered on screen
+        if let screen = NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            let x = (screenFrame.width - windowSize.width) / 2 + screenFrame.origin.x
+            let y = (screenFrame.height - windowSize.height) / 2 + screenFrame.origin.y
+            window.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+
+        // Store window reference first (before creating delegate that captures group.id)
+        let groupId = group.id
+        multiTerminalWindows[groupId] = window
+
+        // Set up window delegate for cleanup on close (single source of truth for cleanup)
+        let delegate = MultiTerminalWindowDelegate { [weak self] in
+            TerminalSessionManager.shared.terminateGroup(groupId)
+            self?.multiTerminalWindows.removeValue(forKey: groupId)
+        }
+        window.delegate = delegate
+        objc_setAssociatedObject(window, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+
+        // Create the multi-terminal grid view
+        // onClose just closes the window - cleanup is handled by the window delegate
+        let gridView = MultiTerminalGridView(
+            groupId: groupId,
+            repositories: repositories,
+            layout: layout,
+            initialPrompt: initialPrompt,
+            onClose: { [weak window] in
+                window?.close()
+            }
+        )
+
+        window.contentView = NSHostingView(rootView: gridView)
+
+        // Show window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+// MARK: - Multi-Terminal Window Delegate
+
+/// Delegate to handle multi-terminal window close events
+private class MultiTerminalWindowDelegate: NSObject, NSWindowDelegate {
+    private let onClose: () -> Void
+
+    init(onClose: @escaping () -> Void) {
+        self.onClose = onClose
+        super.init()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        onClose()
     }
 }
 
