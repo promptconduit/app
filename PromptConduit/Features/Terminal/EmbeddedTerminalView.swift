@@ -3,6 +3,21 @@ import AppKit
 import SwiftTerm
 
 
+// MARK: - Custom Terminal View (Disables Native Selection)
+
+/// A custom terminal view that disables SwiftTerm's native text selection.
+/// This prevents selection highlight conflicts with Claude Code's TUI,
+/// which manages its own cursor and input area rendering.
+class TUICompatibleTerminalView: LocalProcessTerminalView {
+    /// Override selection change to immediately clear any selection.
+    /// This prevents the misaligned selection highlight when Claude Code's TUI
+    /// repositions the visual layout differently from SwiftTerm's buffer coordinates.
+    override func selectionChanged(source: Terminal) {
+        // Immediately clear selection to prevent visual artifacts
+        selectNone()
+    }
+}
+
 /// A SwiftUI wrapper for SwiftTerm's LocalProcessTerminalView
 struct EmbeddedTerminalView: NSViewRepresentable {
     let workingDirectory: String
@@ -45,7 +60,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
-        let terminalView = LocalProcessTerminalView(frame: .zero)
+        let terminalView = TUICompatibleTerminalView(frame: .zero)
 
         // Configure terminal appearance with dark theme
         let bgColor = NSColor(red: 0.06, green: 0.09, blue: 0.16, alpha: 1.0)
