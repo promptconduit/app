@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import SwiftTerm
 
+
 /// A SwiftUI wrapper for SwiftTerm's LocalProcessTerminalView
 struct EmbeddedTerminalView: NSViewRepresentable {
     let workingDirectory: String
@@ -66,12 +67,16 @@ struct EmbeddedTerminalView: NSViewRepresentable {
             terminalView.window?.makeFirstResponder(terminalView)
         }
 
-        // Build environment with user's PATH
+        // Build environment with user's PATH and proper terminal settings
         var environment = ProcessInfo.processInfo.environment
         // Ensure common paths are in PATH for finding claude
         if let existingPath = environment["PATH"] {
             environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(existingPath)"
         }
+        // Set terminal type - xterm-256color is standard for modern terminals
+        environment["TERM"] = "xterm-256color"
+        environment["COLORTERM"] = "truecolor"
+        environment["LANG"] = "en_US.UTF-8"
 
         // Build shell command that changes to working directory then runs claude
         // We use a shell to handle directory change since startProcess doesn't support it
