@@ -33,8 +33,12 @@ class TerminalOutputMonitor: ObservableObject {
     private var debounceTimer: Timer?
     private let debounceInterval: TimeInterval = 0.5
 
-    /// Suppression window to prevent output-based detection after hook events
-    private var suppressUntil: Date?
+    /// Suppression window to prevent output-based waiting detection after UserPromptSubmit
+    private var suppressWaitingUntil: Date?
+
+    /// Suppression window to prevent ALL output-based detection after any hook event
+    /// When hooks fire, they take priority over output parsing
+    private var suppressAllUntil: Date?
 
     /// Track the last detected state to avoid redundant notifications
     private var lastNotifiedState: Bool = false
@@ -127,8 +131,15 @@ class TerminalOutputMonitor: ObservableObject {
     /// Suppress output-based waiting detection for a duration
     /// Used after UserPromptSubmit hook to prevent false positives from echoed prompts
     func suppressWaitingDetection(for duration: TimeInterval) {
-        suppressUntil = Date().addingTimeInterval(duration)
-        monitorLog("Suppressing waiting detection for \(duration)s until \(suppressUntil!)")
+        suppressWaitingUntil = Date().addingTimeInterval(duration)
+        monitorLog("Suppressing waiting detection for \(duration)s until \(suppressWaitingUntil!)")
+    }
+
+    /// Suppress ALL output-based state detection for a duration
+    /// Used after hook events to ensure hooks take priority over output parsing
+    func suppressAllDetection(for duration: TimeInterval) {
+        suppressAllUntil = Date().addingTimeInterval(duration)
+        monitorLog("Suppressing ALL output detection for \(duration)s until \(suppressAllUntil!)")
     }
 
     // MARK: - Private Methods
@@ -143,10 +154,17 @@ class TerminalOutputMonitor: ObservableObject {
     private func updateWaitingState(_ newState: Bool) {
         monitorLog("updateWaitingState called: newState=\(newState), lastNotifiedState=\(lastNotifiedState)")
 
-        // If trying to set waiting=true but within suppression window, ignore
+        // If within ALL detection suppression window, ignore all output-based state changes
+        // This ensures hook events take priority over output parsing
+        if let suppressAllUntil = suppressAllUntil, Date() < suppressAllUntil {
+            monitorLog("Ignoring output-based state change due to hook suppression window (until \(suppressAllUntil))")
+            return
+        }
+
+        // If trying to set waiting=true but within waiting suppression window, ignore
         // This prevents false positives from echoed prompts after UserPromptSubmit
-        if newState == true, let suppressUntil = suppressUntil, Date() < suppressUntil {
-            monitorLog("Ignoring waiting=true due to suppression window (until \(suppressUntil))")
+        if newState == true, let suppressWaitingUntil = suppressWaitingUntil, Date() < suppressWaitingUntil {
+            monitorLog("Ignoring waiting=true due to suppression window (until \(suppressWaitingUntil))")
             return
         }
 

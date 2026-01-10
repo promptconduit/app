@@ -76,6 +76,68 @@ final class TerminalOutputMonitorTests: XCTestCase {
         XCTAssertEqual(stateChanges, [true], "Should allow waiting state after suppression expires")
     }
 
+    func testSuppressAllDetectionBlocksAllStateChanges() {
+        let monitor = TerminalOutputMonitor()
+        var stateChanges: [Bool] = []
+
+        monitor.onWaitingStateChanged = { isWaiting in
+            stateChanges.append(isWaiting)
+        }
+
+        // Activate ALL detection suppression (used after hook events)
+        monitor.suppressAllDetection(for: 2.0)
+
+        // Try to set waiting state - should be blocked
+        monitor.setWaiting(true)
+
+        // Also try to set not waiting - should also be blocked
+        monitor.setWaiting(false)
+
+        // No state changes should have occurred
+        XCTAssertTrue(stateChanges.isEmpty, "All state changes should be suppressed")
+        XCTAssertFalse(monitor.isWaiting, "isWaiting should remain false during suppression")
+    }
+
+    func testSuppressAllDetectionExpires() {
+        let monitor = TerminalOutputMonitor()
+        var stateChanges: [Bool] = []
+        let callbackExpectation = self.expectation(description: "Callback received")
+
+        monitor.onWaitingStateChanged = { isWaiting in
+            stateChanges.append(isWaiting)
+            callbackExpectation.fulfill()
+        }
+
+        // Activate very short ALL suppression window
+        monitor.suppressAllDetection(for: 0.1)
+
+        // Wait for suppression to expire, then set state
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            monitor.setWaiting(true)
+        }
+
+        wait(for: [callbackExpectation], timeout: 1.0)
+        XCTAssertEqual(stateChanges, [true], "Should allow state changes after ALL suppression expires")
+    }
+
+    func testSuppressAllTakesPriorityOverWaitingSuppression() {
+        let monitor = TerminalOutputMonitor()
+        var stateChanges: [Bool] = []
+
+        monitor.onWaitingStateChanged = { isWaiting in
+            stateChanges.append(isWaiting)
+        }
+
+        // Activate both suppression windows
+        monitor.suppressWaitingDetection(for: 2.0)  // Only blocks waiting=true
+        monitor.suppressAllDetection(for: 2.0)       // Blocks all changes
+
+        // Try to set not waiting - normally allowed by waiting suppression, but blocked by all suppression
+        monitor.setWaiting(false)
+
+        XCTAssertTrue(stateChanges.isEmpty, "suppressAllDetection should block all changes including false")
+    }
+
     // MARK: - State Change Tests
 
     func testStateChangeNotifiesCallback() {
