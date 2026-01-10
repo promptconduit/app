@@ -96,6 +96,19 @@ class OutputParser {
             "· Writing",      // Tool in progress
             "· Editing",      // Tool in progress
             "⏳",             // Loading spinner
+            // Tool/MCP execution indicators
+            "⎿",              // Tool result box (closing)
+            "├",              // Tool result box (middle)
+            "╭",              // Tool result box (top corner)
+            "╰",              // Tool result box (bottom corner)
+            "Calling",        // MCP tool calls
+            "mcp__",          // MCP tool prefix in output
+            "Running:",       // Running command indicator
+            "Executing",      // Execution indicator
+            "· Bash",         // Bash tool in progress
+            "· Glob",         // Glob tool in progress
+            "· Grep",         // Grep tool in progress
+            "· Task",         // Task tool in progress
         ]
 
         for pattern in busyPatterns {
@@ -105,18 +118,24 @@ class OutputParser {
             }
         }
 
+        // Get the last few lines for stricter pattern matching
+        // This prevents old prompt patterns from triggering false "waiting" detection
+        let lines = recentText.components(separatedBy: "\n")
+        let lastLines = lines.suffix(5).joined(separator: "\n")
+        parserLog("isWaitingForInput - checking last 5 lines: '\(lastLines.replacingOccurrences(of: "\n", with: "\\n").prefix(100))...'")
+
         // Claude Code TUI patterns that indicate ready for input
         // Use regex to be more flexible with whitespace variations
         let emptyPromptRegex = try? NSRegularExpression(pattern: "\\n>\\s*\\n", options: [])
         if let regex = emptyPromptRegex {
-            let range = NSRange(recentText.startIndex..., in: recentText)
-            if regex.firstMatch(in: recentText, options: [], range: range) != nil {
+            let range = NSRange(lastLines.startIndex..., in: lastLines)
+            if regex.firstMatch(in: lastLines, options: [], range: range) != nil {
                 parserLog("DETECTED empty prompt line with regex - WAITING for input")
                 return true
             }
         }
 
-        // Also check for specific patterns
+        // Check for specific ready patterns - ONLY in the last few lines
         let readyPatterns = [
             "> Try \"",        // Claude's suggestion prompt
             "❯ ",              // Claude's terminal prompt
@@ -124,13 +143,13 @@ class OutputParser {
         ]
 
         for pattern in readyPatterns {
-            if recentText.contains(pattern) {
-                parserLog("DETECTED ready pattern: '\(pattern)' - WAITING for input")
+            if lastLines.contains(pattern) {
+                parserLog("DETECTED ready pattern: '\(pattern)' in last lines - WAITING for input")
                 return true
             }
         }
 
-        // Interactive prompts that indicate waiting
+        // Interactive prompts that indicate waiting - check in last lines
         let interactivePatterns = [
             "Continue?",       // Continue prompt
             "(y/n)",           // Yes/No prompt
@@ -145,8 +164,8 @@ class OutputParser {
         ]
 
         for pattern in interactivePatterns {
-            if recentText.contains(pattern) {
-                parserLog("DETECTED interactive pattern: '\(pattern)' - WAITING for input")
+            if lastLines.contains(pattern) {
+                parserLog("DETECTED interactive pattern: '\(pattern)' in last lines - WAITING for input")
                 return true
             }
         }

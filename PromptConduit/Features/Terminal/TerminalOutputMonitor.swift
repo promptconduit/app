@@ -85,6 +85,13 @@ class TerminalOutputMonitor: ObservableObject {
         debounceTimer = nil
     }
 
+    /// Clear just the output buffer (preserves state)
+    /// Called when UserPromptSubmit fires to prevent old patterns from persisting
+    func clearBuffer() {
+        buffer = ""
+        monitorLog("Buffer cleared on UserPromptSubmit")
+    }
+
     /// Start periodic monitoring (for terminals where we can't capture output directly)
     func startPeriodicMonitoring(interval: TimeInterval = 1.0) {
         stopPeriodicMonitoring()
