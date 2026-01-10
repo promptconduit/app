@@ -61,6 +61,8 @@ class TerminalSessionManager: ObservableObject {
             // Suppress ALL output-based detection for a short period - hooks take priority
             // Then suppress only waiting detection for longer to prevent false positives from echoed prompts
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                // Clear the buffer to prevent old prompt patterns from persisting
+                self?.sessions[index].outputMonitor?.clearBuffer()
                 self?.sessions[index].outputMonitor?.suppressAllDetection(for: 0.5)
                 self?.sessions[index].outputMonitor?.suppressWaitingDetection(for: 2.0)
             }
