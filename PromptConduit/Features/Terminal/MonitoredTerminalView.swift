@@ -52,11 +52,67 @@ class MonitoredTerminalView: LocalProcessTerminalView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         terminalLog("INIT - Terminal view created (frame)")
+        setupContextMenu()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         terminalLog("INIT - Terminal view created (coder)")
+        setupContextMenu()
+    }
+
+    // MARK: - Context Menu
+
+    /// Sets up the right-click context menu with Copy and Select All options
+    private func setupContextMenu() {
+        let menu = NSMenu()
+
+        let copyItem = NSMenuItem(title: "Copy", action: #selector(copy(_:)), keyEquivalent: "c")
+        copyItem.keyEquivalentModifierMask = .command
+        menu.addItem(copyItem)
+
+        let selectAllItem = NSMenuItem(title: "Select All", action: #selector(selectAll(_:)), keyEquivalent: "a")
+        selectAllItem.keyEquivalentModifierMask = .command
+        menu.addItem(selectAllItem)
+
+        self.menu = menu
+    }
+
+    // MARK: - Copy & Selection Support
+
+    /// Copies the selected terminal text to the clipboard
+    @objc override func copy(_ sender: Any?) {
+        guard let selectedText = getSelection(), !selectedText.isEmpty else {
+            NSSound.beep()
+            return
+        }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(selectedText, forType: .string)
+        terminalLog("Copied \(selectedText.count) characters to clipboard")
+    }
+
+    /// Validates menu items - enables Copy only when there's a selection
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(copy(_:)) {
+            if let selectedText = getSelection() {
+                return !selectedText.isEmpty
+            }
+            return false
+        }
+        return super.validateUserInterfaceItem(item)
+    }
+
+    /// Handle keyboard shortcuts for copy (Cmd+C)
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Handle Cmd+C for copy
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "c" {
+            copy(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
