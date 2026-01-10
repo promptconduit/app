@@ -10,6 +10,7 @@ struct TerminalSessionInfo: Identifiable {
     var isRunning: Bool
     var isWaiting: Bool = true  // Default to waiting (Claude starts ready for input)
     var groupId: UUID? = nil  // For multi-session groups
+    var claudeSessionId: String? = nil  // Claude Code's session ID for reliable matching
     weak var terminalView: LocalProcessTerminalView? = nil
     var outputMonitor: TerminalOutputMonitor? = nil
 }
@@ -44,26 +45,59 @@ class TerminalSessionManager: ObservableObject {
     private func setupHookListening() {
         let hookService = HookNotificationService.shared
 
-        // Session started → waiting
+        // Session started → associate Claude session ID and set waiting
         hookService.onSessionStart = { [weak self] event in
-            self?.updateSessionStateFromCwd(event.cwd, isWaiting: true)
+            self?.associateClaudeSession(cwd: event.cwd, claudeSessionId: event.sessionId)
+            self?.updateSessionState(cwd: event.cwd, sessionId: event.sessionId, isWaiting: true)
         }
 
         // User submitted prompt → running
         hookService.onUserPromptSubmit = { [weak self] event in
-            self?.updateSessionStateFromCwd(event.cwd, isWaiting: false)
+            self?.updateSessionState(cwd: event.cwd, sessionId: event.sessionId, isWaiting: false)
+            // Suppress output-based waiting detection for 2 seconds to prevent false positives
+            // from echoed prompts in the terminal output
+            if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                self?.sessions[index].outputMonitor?.suppressWaitingDetection(for: 2.0)
+            }
         }
 
         // Claude stopped → waiting
         hookService.onStop = { [weak self] event in
-            self?.updateSessionStateFromCwd(event.cwd, isWaiting: true)
+            self?.updateSessionState(cwd: event.cwd, sessionId: event.sessionId, isWaiting: true)
         }
     }
 
-    /// Update session state by matching working directory
-    private func updateSessionStateFromCwd(_ cwd: String, isWaiting: Bool) {
-        guard let session = sessions.first(where: { $0.workingDirectory == cwd }) else { return }
-        updateWaitingState(session.id, isWaiting: isWaiting)
+    /// Associates Claude's session ID with our app session
+    private func associateClaudeSession(cwd: String, claudeSessionId: String?) {
+        guard let claudeSessionId = claudeSessionId else { return }
+        guard let index = findSessionIndex(cwd: cwd, sessionId: nil) else { return }
+        sessions[index].claudeSessionId = claudeSessionId
+    }
+
+    /// Finds session by Claude session ID first, then by cwd/directory name
+    private func findSessionIndex(cwd: String, sessionId: String?) -> Int? {
+        // Try Claude session ID first (most reliable)
+        if let sessionId = sessionId,
+           let index = sessions.firstIndex(where: { $0.claudeSessionId == sessionId }) {
+            return index
+        }
+
+        // Try exact cwd match
+        if let index = sessions.firstIndex(where: { $0.workingDirectory == cwd }) {
+            return index
+        }
+
+        // Fallback: match by directory name (handles path differences)
+        let eventDirName = URL(fileURLWithPath: cwd).lastPathComponent
+        return sessions.firstIndex(where: {
+            URL(fileURLWithPath: $0.workingDirectory).lastPathComponent == eventDirName
+        })
+    }
+
+    /// Update session state using flexible matching
+    private func updateSessionState(cwd: String, sessionId: String?, isWaiting: Bool) {
+        guard let index = findSessionIndex(cwd: cwd, sessionId: sessionId) else { return }
+        updateWaitingState(sessions[index].id, isWaiting: isWaiting)
     }
 
     // MARK: - Session Management

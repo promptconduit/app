@@ -33,6 +33,9 @@ class TerminalOutputMonitor: ObservableObject {
     private var debounceTimer: Timer?
     private let debounceInterval: TimeInterval = 0.5
 
+    /// Suppression window to prevent output-based detection after hook events
+    private var suppressUntil: Date?
+
     /// Track the last detected state to avoid redundant notifications
     private var lastNotifiedState: Bool = false
 
@@ -121,6 +124,13 @@ class TerminalOutputMonitor: ObservableObject {
         updateWaitingState(false)
     }
 
+    /// Suppress output-based waiting detection for a duration
+    /// Used after UserPromptSubmit hook to prevent false positives from echoed prompts
+    func suppressWaitingDetection(for duration: TimeInterval) {
+        suppressUntil = Date().addingTimeInterval(duration)
+        monitorLog("Suppressing waiting detection for \(duration)s until \(suppressUntil!)")
+    }
+
     // MARK: - Private Methods
 
     private func debounceStateCheck() {
@@ -132,6 +142,14 @@ class TerminalOutputMonitor: ObservableObject {
 
     private func updateWaitingState(_ newState: Bool) {
         monitorLog("updateWaitingState called: newState=\(newState), lastNotifiedState=\(lastNotifiedState)")
+
+        // If trying to set waiting=true but within suppression window, ignore
+        // This prevents false positives from echoed prompts after UserPromptSubmit
+        if newState == true, let suppressUntil = suppressUntil, Date() < suppressUntil {
+            monitorLog("Ignoring waiting=true due to suppression window (until \(suppressUntil))")
+            return
+        }
+
         // Only notify on actual changes
         guard newState != lastNotifiedState else {
             monitorLog("State unchanged, skipping notification")

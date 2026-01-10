@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftTerm
+import UniformTypeIdentifiers
 
 // MARK: - Design Tokens
 
@@ -29,6 +30,10 @@ struct TerminalCellView: View {
 
     @ObservedObject private var terminalManager = TerminalSessionManager.shared
     @State private var isTerminated = false
+    @State private var isDragOver = false
+    @State private var terminalView: LocalProcessTerminalView? = nil
+
+    private let imageService = ImageAttachmentService.shared
 
     /// Get the current session from the manager
     private var session: TerminalSessionInfo? {
@@ -45,25 +50,38 @@ struct TerminalCellView: View {
             // Mini header with status
             cellHeader
 
-            // Terminal
-            EmbeddedTerminalView(
-                workingDirectory: workingDirectory,
-                onTerminated: {
-                    isTerminated = true
-                    onTerminated()
-                },
-                onTerminalReady: { terminal in
-                    onTerminalReady(terminal)
-                },
-                onOutputReceived: { text in
-                    // Feed output to the terminal session manager for waiting state detection
-                    terminalManager.processOutput(sessionId, text: text)
-                },
-                onClaudeReady: {
-                    onClaudeReady?()
+            // Terminal with drag & drop
+            ZStack {
+                EmbeddedTerminalView(
+                    workingDirectory: workingDirectory,
+                    onTerminated: {
+                        isTerminated = true
+                        onTerminated()
+                    },
+                    onTerminalReady: { terminal in
+                        terminalView = terminal  // Store locally for drag & drop
+                        onTerminalReady(terminal)
+                    },
+                    onOutputReceived: { text in
+                        // Feed output to the terminal session manager for waiting state detection
+                        terminalManager.processOutput(sessionId, text: text)
+                    },
+                    onClaudeReady: {
+                        onClaudeReady?()
+                    }
+                )
+                .background(CellTokens.backgroundPrimary)
+
+                // Drag overlay
+                if isDragOver {
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.cyan, lineWidth: 2)
+                        .background(Color.cyan.opacity(0.1))
                 }
-            )
-            .background(CellTokens.backgroundPrimary)
+            }
+            .onDrop(of: [.image, .fileURL], isTargeted: $isDragOver) { providers in
+                handleDrop(providers: providers)
+            }
         }
         .background(CellTokens.backgroundPrimary)
         .overlay(
@@ -162,6 +180,68 @@ struct TerminalCellView: View {
         } else {
             return 0
         }
+    }
+
+    // MARK: - Drag & Drop
+
+    /// Handles file drop from drag & drop
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        var handled = false
+
+        for provider in providers {
+            // Try to load as file URL first
+            if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+                provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
+                    if let data = item as? Data,
+                       let url = URL(dataRepresentation: data, relativeTo: nil),
+                       isImageFile(url) {
+                        DispatchQueue.main.async {
+                            attachImageFile(url)
+                        }
+                    }
+                }
+                handled = true
+            }
+            // Try to load as image data
+            else if provider.hasItemConformingToTypeIdentifier("public.image") {
+                provider.loadDataRepresentation(forTypeIdentifier: "public.image") { data, _ in
+                    if let data = data {
+                        DispatchQueue.main.async {
+                            attachImageData(data)
+                        }
+                    }
+                }
+                handled = true
+            }
+        }
+
+        return handled
+    }
+
+    /// Attaches an image file by copying it to temp storage
+    private func attachImageFile(_ url: URL) {
+        if let savedURL = imageService.copyImageFile(url) {
+            insertIntoTerminal(savedURL.path)
+        }
+    }
+
+    /// Attaches image data by saving to temp storage
+    private func attachImageData(_ data: Data) {
+        if let savedURL = imageService.saveImageData(data, fileExtension: "png") {
+            insertIntoTerminal(savedURL.path)
+        }
+    }
+
+    /// Inserts the image path into the terminal input
+    private func insertIntoTerminal(_ path: String) {
+        let textToInsert = "@\(path) "
+        terminalView?.send(txt: textToInsert)
+    }
+
+    /// Checks if a URL points to an image file
+    private func isImageFile(_ url: URL) -> Bool {
+        let imageExtensions = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "heic"]
+        return imageExtensions.contains(url.pathExtension.lowercased())
     }
 }
 
