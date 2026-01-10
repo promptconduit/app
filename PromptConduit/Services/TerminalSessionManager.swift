@@ -49,14 +49,19 @@ class TerminalSessionManager: ObservableObject {
         hookService.onSessionStart = { [weak self] event in
             self?.associateClaudeSession(cwd: event.cwd, claudeSessionId: event.sessionId)
             self?.updateSessionState(cwd: event.cwd, sessionId: event.sessionId, isWaiting: true)
+            // Suppress output-based detection - hooks take priority
+            if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                self?.sessions[index].outputMonitor?.suppressAllDetection(for: 1.0)
+            }
         }
 
         // User submitted prompt → running
         hookService.onUserPromptSubmit = { [weak self] event in
             self?.updateSessionState(cwd: event.cwd, sessionId: event.sessionId, isWaiting: false)
-            // Suppress output-based waiting detection for 2 seconds to prevent false positives
-            // from echoed prompts in the terminal output
+            // Suppress ALL output-based detection for a short period - hooks take priority
+            // Then suppress only waiting detection for longer to prevent false positives from echoed prompts
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                self?.sessions[index].outputMonitor?.suppressAllDetection(for: 0.5)
                 self?.sessions[index].outputMonitor?.suppressWaitingDetection(for: 2.0)
             }
         }
@@ -64,6 +69,11 @@ class TerminalSessionManager: ObservableObject {
         // Claude stopped → waiting
         hookService.onStop = { [weak self] event in
             self?.updateSessionState(cwd: event.cwd, sessionId: event.sessionId, isWaiting: true)
+            // Suppress output-based detection - hooks take priority
+            // This prevents old "busy" patterns in the buffer from overriding the waiting state
+            if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                self?.sessions[index].outputMonitor?.suppressAllDetection(for: 1.0)
+            }
         }
     }
 
