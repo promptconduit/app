@@ -59,6 +59,9 @@ class TerminalSessionManager: ObservableObject {
         // User submitted prompt → running
         hookService.onUserPromptSubmit = { [weak self] event in
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                // Mark as hook-managed on any hook event (handles race condition where
+                // SessionStart fires before session is registered)
+                self?.sessions[index].outputMonitor?.setHookManaged()
                 // Clear the buffer to prevent old prompt patterns from persisting
                 self?.sessions[index].outputMonitor?.clearBuffer()
                 // Force set running state (hooks are authoritative)
@@ -69,6 +72,9 @@ class TerminalSessionManager: ObservableObject {
         // Claude stopped → waiting
         hookService.onStop = { [weak self] event in
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                // Mark as hook-managed on any hook event (handles race condition where
+                // SessionStart fires before session is registered)
+                self?.sessions[index].outputMonitor?.setHookManaged()
                 // Force set waiting state (hooks are authoritative)
                 self?.sessions[index].outputMonitor?.forceSetWaiting(true)
             }
