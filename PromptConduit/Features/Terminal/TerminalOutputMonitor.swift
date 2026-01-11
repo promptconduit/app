@@ -46,6 +46,13 @@ class TerminalOutputMonitor: ObservableObject {
     /// Timer for periodic state checking (fallback for terminals without output streaming)
     private var periodicCheckTimer: Timer?
 
+    /// When true, output parsing cannot change state - only hooks can
+    /// This is set when a hook event is received for this session
+    private var hookManaged: Bool = false
+
+    /// Check if session is hook-managed
+    var isHookManaged: Bool { hookManaged }
+
     // MARK: - Initialization
 
     init(onWaitingStateChanged: ((Bool) -> Void)? = nil) {
@@ -149,6 +156,34 @@ class TerminalOutputMonitor: ObservableObject {
         monitorLog("Suppressing ALL output detection for \(duration)s until \(suppressAllUntil!)")
     }
 
+    /// Mark this session as hook-managed
+    /// Once called, output parsing will no longer change state - only forceSetWaiting can
+    func setHookManaged() {
+        hookManaged = true
+        monitorLog("Session is now hook-managed - output parsing will not change state")
+    }
+
+    /// Force set waiting state (bypasses hook-managed check)
+    /// Only called from hook event handlers - hooks are authoritative
+    func forceSetWaiting(_ waiting: Bool) {
+        monitorLog("forceSetWaiting called: waiting=\(waiting), lastNotifiedState=\(lastNotifiedState)")
+
+        // Only notify on actual changes
+        guard waiting != lastNotifiedState else {
+            monitorLog("State unchanged (force), skipping notification")
+            return
+        }
+
+        lastNotifiedState = waiting
+        monitorLog("State FORCE SET to \(waiting) by hook")
+
+        DispatchQueue.main.async { [weak self] in
+            self?.isWaiting = waiting
+            monitorLog("Calling onWaitingStateChanged callback with \(waiting) (forced)")
+            self?.onWaitingStateChanged?(waiting)
+        }
+    }
+
     // MARK: - Private Methods
 
     private func debounceStateCheck() {
@@ -159,7 +194,14 @@ class TerminalOutputMonitor: ObservableObject {
     }
 
     private func updateWaitingState(_ newState: Bool) {
-        monitorLog("updateWaitingState called: newState=\(newState), lastNotifiedState=\(lastNotifiedState)")
+        monitorLog("updateWaitingState called: newState=\(newState), lastNotifiedState=\(lastNotifiedState), hookManaged=\(hookManaged)")
+
+        // If hook-managed, output parsing cannot change state - only forceSetWaiting() can
+        // This ensures hooks are the permanent source of truth once established
+        if hookManaged {
+            monitorLog("Ignoring output-based state change - session is hook-managed")
+            return
+        }
 
         // If within ALL detection suppression window, ignore all output-based state changes
         // This ensures hook events take priority over output parsing
