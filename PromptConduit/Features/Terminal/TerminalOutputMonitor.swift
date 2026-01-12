@@ -165,15 +165,12 @@ class TerminalOutputMonitor: ObservableObject {
 
     /// Force set waiting state (bypasses hook-managed check)
     /// Only called from hook event handlers - hooks are authoritative
+    /// Always updates state regardless of lastNotifiedState since hooks are the source of truth
     func forceSetWaiting(_ waiting: Bool) {
         monitorLog("forceSetWaiting called: waiting=\(waiting), lastNotifiedState=\(lastNotifiedState)")
 
-        // Only notify on actual changes
-        guard waiting != lastNotifiedState else {
-            monitorLog("State unchanged (force), skipping notification")
-            return
-        }
-
+        // Always update - hooks are authoritative and override any previous state
+        // This handles the case where lastNotifiedState is out of sync with actual session state
         lastNotifiedState = waiting
         monitorLog("State FORCE SET to \(waiting) by hook")
 

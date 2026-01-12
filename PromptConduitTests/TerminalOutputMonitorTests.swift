@@ -332,10 +332,11 @@ final class TerminalOutputMonitorTests: XCTestCase {
         XCTAssertTrue(monitor.isWaiting)
     }
 
-    func testForceSetWaitingSkipsDuplicateStates() {
+    func testForceSetWaitingAlwaysUpdates() {
         let monitor = TerminalOutputMonitor()
         var notifyCount = 0
-        let expectation = self.expectation(description: "First callback")
+        let expectation = self.expectation(description: "Callbacks received")
+        expectation.expectedFulfillmentCount = 3
 
         monitor.onWaitingStateChanged = { _ in
             notifyCount += 1
@@ -343,20 +344,14 @@ final class TerminalOutputMonitorTests: XCTestCase {
         }
 
         monitor.setHookManaged()
+        // forceSetWaiting should ALWAYS update since hooks are authoritative
+        // This ensures state is properly synced even if lastNotifiedState is out of sync
         monitor.forceSetWaiting(true)
-        monitor.forceSetWaiting(true)  // Duplicate - should be ignored
-        monitor.forceSetWaiting(true)  // Duplicate - should be ignored
+        monitor.forceSetWaiting(true)  // Still updates - hooks are authoritative
+        monitor.forceSetWaiting(true)  // Still updates - hooks are authoritative
 
         wait(for: [expectation], timeout: 1.0)
-
-        // Give time for any potential extra callbacks (which shouldn't happen)
-        let delayExpectation = self.expectation(description: "Delay")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            delayExpectation.fulfill()
-        }
-        wait(for: [delayExpectation], timeout: 1.0)
-
-        XCTAssertEqual(notifyCount, 1, "forceSetWaiting should skip duplicate states")
+        XCTAssertEqual(notifyCount, 3, "forceSetWaiting should always update since hooks are authoritative")
     }
 
     func testHookManagedSessionIgnoresProcessOutput() {

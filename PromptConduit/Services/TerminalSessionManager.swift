@@ -47,18 +47,24 @@ class TerminalSessionManager: ObservableObject {
 
         // Session started → associate Claude session ID, mark as hook-managed, and set waiting
         hookService.onSessionStart = { [weak self] event in
+            self?.logHook("SessionStart received: cwd=\(event.cwd), sessionId=\(event.sessionId ?? "nil")")
             self?.associateClaudeSession(cwd: event.cwd, claudeSessionId: event.sessionId)
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                self?.logHook("SessionStart: Found session at index \(index), setting hookManaged and waiting=true")
                 // Mark session as hook-managed - output parsing will no longer change state
                 self?.sessions[index].outputMonitor?.setHookManaged()
                 // Force set waiting state (hooks are authoritative)
                 self?.sessions[index].outputMonitor?.forceSetWaiting(true)
+            } else {
+                self?.logHook("SessionStart: Session NOT FOUND! Sessions: \(self?.sessions.map { $0.workingDirectory } ?? [])")
             }
         }
 
         // User submitted prompt → running
         hookService.onUserPromptSubmit = { [weak self] event in
+            self?.logHook("UserPromptSubmit received: cwd=\(event.cwd), sessionId=\(event.sessionId ?? "nil")")
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                self?.logHook("UserPromptSubmit: Found session at index \(index), setting hookManaged and waiting=false")
                 // Mark as hook-managed on any hook event (handles race condition where
                 // SessionStart fires before session is registered)
                 self?.sessions[index].outputMonitor?.setHookManaged()
@@ -66,19 +72,38 @@ class TerminalSessionManager: ObservableObject {
                 self?.sessions[index].outputMonitor?.clearBuffer()
                 // Force set running state (hooks are authoritative)
                 self?.sessions[index].outputMonitor?.forceSetWaiting(false)
+            } else {
+                self?.logHook("UserPromptSubmit: Session NOT FOUND! Sessions: \(self?.sessions.map { $0.workingDirectory } ?? [])")
             }
         }
 
         // Claude stopped → waiting
         hookService.onStop = { [weak self] event in
+            self?.logHook("Stop received: cwd=\(event.cwd), sessionId=\(event.sessionId ?? "nil")")
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                self?.logHook("Stop: Found session at index \(index), setting hookManaged and waiting=true")
                 // Mark as hook-managed on any hook event (handles race condition where
                 // SessionStart fires before session is registered)
                 self?.sessions[index].outputMonitor?.setHookManaged()
                 // Force set waiting state (hooks are authoritative)
                 self?.sessions[index].outputMonitor?.forceSetWaiting(true)
+            } else {
+                self?.logHook("Stop: Session NOT FOUND! Sessions: \(self?.sessions.map { $0.workingDirectory } ?? [])")
             }
         }
+    }
+
+    /// Log helper for hook debugging
+    private func logHook(_ message: String) {
+        let logPath = "/tmp/promptconduit-terminal.log"
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        let line = "[TSM Hook \(timestamp)] \(message)\n"
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        }
+        print("[TSM Hook] \(message)")
     }
 
     /// Associates Claude's session ID with our app session
