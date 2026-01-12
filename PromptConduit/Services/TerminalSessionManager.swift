@@ -45,36 +45,38 @@ class TerminalSessionManager: ObservableObject {
     private func setupHookListening() {
         let hookService = HookNotificationService.shared
 
-        // Session started → associate Claude session ID and set waiting
+        // Session started → associate Claude session ID, mark as hook-managed, and set waiting
         hookService.onSessionStart = { [weak self] event in
             self?.associateClaudeSession(cwd: event.cwd, claudeSessionId: event.sessionId)
-            self?.updateSessionState(cwd: event.cwd, sessionId: event.sessionId, isWaiting: true)
-            // Suppress output-based detection - hooks take priority
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
-                self?.sessions[index].outputMonitor?.suppressAllDetection(for: 1.0)
+                // Mark session as hook-managed - output parsing will no longer change state
+                self?.sessions[index].outputMonitor?.setHookManaged()
+                // Force set waiting state (hooks are authoritative)
+                self?.sessions[index].outputMonitor?.forceSetWaiting(true)
             }
         }
 
         // User submitted prompt → running
         hookService.onUserPromptSubmit = { [weak self] event in
-            self?.updateSessionState(cwd: event.cwd, sessionId: event.sessionId, isWaiting: false)
-            // Suppress ALL output-based detection for a short period - hooks take priority
-            // Then suppress only waiting detection for longer to prevent false positives from echoed prompts
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                // Mark as hook-managed on any hook event (handles race condition where
+                // SessionStart fires before session is registered)
+                self?.sessions[index].outputMonitor?.setHookManaged()
                 // Clear the buffer to prevent old prompt patterns from persisting
                 self?.sessions[index].outputMonitor?.clearBuffer()
-                self?.sessions[index].outputMonitor?.suppressAllDetection(for: 0.5)
-                self?.sessions[index].outputMonitor?.suppressWaitingDetection(for: 2.0)
+                // Force set running state (hooks are authoritative)
+                self?.sessions[index].outputMonitor?.forceSetWaiting(false)
             }
         }
 
         // Claude stopped → waiting
         hookService.onStop = { [weak self] event in
-            self?.updateSessionState(cwd: event.cwd, sessionId: event.sessionId, isWaiting: true)
-            // Suppress output-based detection - hooks take priority
-            // This prevents old "busy" patterns in the buffer from overriding the waiting state
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
-                self?.sessions[index].outputMonitor?.suppressAllDetection(for: 1.0)
+                // Mark as hook-managed on any hook event (handles race condition where
+                // SessionStart fires before session is registered)
+                self?.sessions[index].outputMonitor?.setHookManaged()
+                // Force set waiting state (hooks are authoritative)
+                self?.sessions[index].outputMonitor?.forceSetWaiting(true)
             }
         }
     }

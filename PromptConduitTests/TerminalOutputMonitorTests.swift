@@ -254,4 +254,153 @@ final class TerminalOutputMonitorTests: XCTestCase {
         XCTAssertEqual(stateChanges, [false], "userProvidedInput should set waiting to false")
         XCTAssertFalse(monitor.isWaiting)
     }
+
+    // MARK: - Hook-Managed Tests
+
+    func testSetHookManagedMarksSessionAsHookManaged() {
+        let monitor = TerminalOutputMonitor()
+
+        XCTAssertFalse(monitor.isHookManaged, "Should not be hook-managed initially")
+
+        monitor.setHookManaged()
+
+        XCTAssertTrue(monitor.isHookManaged, "Should be hook-managed after setHookManaged()")
+    }
+
+    func testHookManagedSessionIgnoresOutputBasedStateChanges() {
+        let monitor = TerminalOutputMonitor()
+        var stateChanges: [Bool] = []
+
+        monitor.onWaitingStateChanged = { isWaiting in
+            stateChanges.append(isWaiting)
+        }
+
+        // Mark as hook-managed
+        monitor.setHookManaged()
+
+        // Try to change state via setWaiting (output-based) - should be ignored
+        monitor.setWaiting(true)
+        monitor.setWaiting(false)
+        monitor.setWaiting(true)
+
+        XCTAssertTrue(stateChanges.isEmpty, "Hook-managed session should ignore output-based state changes")
+        XCTAssertFalse(monitor.isWaiting, "isWaiting should remain unchanged")
+    }
+
+    func testForceSetWaitingWorksOnHookManagedSession() {
+        let monitor = TerminalOutputMonitor()
+        var stateChanges: [Bool] = []
+        let expectation = self.expectation(description: "Callback received")
+
+        monitor.onWaitingStateChanged = { isWaiting in
+            stateChanges.append(isWaiting)
+            expectation.fulfill()
+        }
+
+        // Mark as hook-managed
+        monitor.setHookManaged()
+
+        // Force set state (hook-based) - should work
+        monitor.forceSetWaiting(true)
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(stateChanges, [true], "forceSetWaiting should work on hook-managed session")
+        XCTAssertTrue(monitor.isWaiting)
+    }
+
+    func testForceSetWaitingStateTransitions() {
+        let monitor = TerminalOutputMonitor()
+        var stateChanges: [Bool] = []
+        let expectation = self.expectation(description: "Callbacks received")
+        expectation.expectedFulfillmentCount = 3
+
+        monitor.onWaitingStateChanged = { isWaiting in
+            stateChanges.append(isWaiting)
+            expectation.fulfill()
+        }
+
+        // Mark as hook-managed
+        monitor.setHookManaged()
+
+        // Simulate hook events: SessionStart -> UserPromptSubmit -> Stop
+        monitor.forceSetWaiting(true)   // SessionStart: waiting
+        monitor.forceSetWaiting(false)  // UserPromptSubmit: running
+        monitor.forceSetWaiting(true)   // Stop: waiting again
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(stateChanges, [true, false, true], "Should track all hook-based state changes")
+        XCTAssertTrue(monitor.isWaiting)
+    }
+
+    func testForceSetWaitingAlwaysUpdates() {
+        let monitor = TerminalOutputMonitor()
+        var notifyCount = 0
+        let expectation = self.expectation(description: "Callbacks received")
+        expectation.expectedFulfillmentCount = 3
+
+        monitor.onWaitingStateChanged = { _ in
+            notifyCount += 1
+            expectation.fulfill()
+        }
+
+        monitor.setHookManaged()
+        // forceSetWaiting should ALWAYS update since hooks are authoritative
+        // This ensures state is properly synced even if lastNotifiedState is out of sync
+        monitor.forceSetWaiting(true)
+        monitor.forceSetWaiting(true)  // Still updates - hooks are authoritative
+        monitor.forceSetWaiting(true)  // Still updates - hooks are authoritative
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(notifyCount, 3, "forceSetWaiting should always update since hooks are authoritative")
+    }
+
+    func testHookManagedSessionIgnoresProcessOutput() {
+        let monitor = TerminalOutputMonitor()
+        var stateChanges: [Bool] = []
+
+        monitor.onWaitingStateChanged = { isWaiting in
+            stateChanges.append(isWaiting)
+        }
+
+        // Mark as hook-managed
+        monitor.setHookManaged()
+
+        // Process output with waiting pattern - should be ignored
+        monitor.processOutput("Some output\n❯ ")
+
+        // Wait for potential debounce
+        let expectation = self.expectation(description: "Debounce completes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+
+        XCTAssertTrue(stateChanges.isEmpty, "Hook-managed session should ignore output-based detection")
+        XCTAssertFalse(monitor.isWaiting)
+    }
+
+    func testMixedHookAndOutputBasedUpdates() {
+        let monitor = TerminalOutputMonitor()
+        var stateChanges: [Bool] = []
+        let expectation = self.expectation(description: "Callbacks received")
+        expectation.expectedFulfillmentCount = 2
+
+        monitor.onWaitingStateChanged = { isWaiting in
+            stateChanges.append(isWaiting)
+            expectation.fulfill()
+        }
+
+        // Mark as hook-managed and set initial state
+        monitor.setHookManaged()
+        monitor.forceSetWaiting(true)  // Hook: waiting
+
+        // Try output-based change - should be ignored
+        monitor.setWaiting(false)
+
+        // Hook-based change - should work
+        monitor.forceSetWaiting(false)  // Hook: running
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(stateChanges, [true, false], "Only hook-based changes should be applied")
+    }
 }
