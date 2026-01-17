@@ -445,8 +445,8 @@ class AgentPanelController {
         // Calculate window size based on layout
         let windowSize = layout.windowSize(for: repositories.count)
 
-        // Create window (use regular NSWindow, not NSPanel, for better keyboard handling)
-        let window = NSWindow(
+        // Create window (use TerminalWindow for Cmd+C copy and Cmd+V image paste support)
+        let window = TerminalWindow(
             contentRect: NSRect(x: 0, y: 0, width: windowSize.width, height: windowSize.height),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,

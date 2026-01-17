@@ -1,102 +1,73 @@
-# PromptConduit macOS App
+# PromptConduit App
 
-Native macOS application for managing GitHub repos and AI coding agents.
+Desktop application for Claude Code terminal management.
 
-## Features
-
-- **Repo Management**: Create, clone, and organize GitHub repositories
-- **Agent Orchestration**: Launch, monitor, and switch between Claude Code agents
-- **Menu Bar Presence**: Always-accessible toolbar with global hotkey (⌘⇧A)
-- **Floating Panels**: Agent windows that stay above other apps
-- **Subscription-First**: Uses Claude Code subscription (no API credits)
-
-## Requirements
-
-- macOS 14.0+
-- Xcode 15.0+
-- XcodeGen (for project generation)
-- Claude Code CLI installed
-
-## Setup
-
-1. Install XcodeGen if not already installed:
-   ```bash
-   brew install xcodegen
-   ```
-
-2. Generate the Xcode project:
-   ```bash
-   cd app
-   xcodegen generate
-   ```
-
-3. Open the project in Xcode:
-   ```bash
-   open PromptConduit.xcodeproj
-   ```
-
-4. Build and run (⌘R)
-
-## Architecture
-
-### PTY-Based Claude Control
-
-The app uses pseudo-terminal (PTY) control to interact with the Claude CLI, allowing:
-- Use of Claude Code subscription (no API costs)
-- Programmatic control (launch agents, send prompts)
-- Real-time output capture for UI display
-
-### Key Components
-
-- **PTYSession**: Spawns and controls Claude CLI via pseudo-terminal
-- **AppDelegate**: Menu bar item, global hotkey, app lifecycle
-- **AgentPanel**: Floating panel window for agent interaction
-- **TranscriptView**: Renders Claude conversation output
-- **AgentManager**: Manages multiple concurrent agent sessions
-
-## Project Structure
+## Directory Structure
 
 ```
-PromptConduit/
-├── PromptConduitApp.swift      # App entry point
-├── AppDelegate.swift           # Menu bar, lifecycle
-├── Core/
-│   └── PTY/
-│       ├── PTYSession.swift    # Terminal control
-│       └── OutputParser.swift  # ANSI parsing
-├── Features/
-│   ├── MenuBar/
-│   │   └── MenuBarController.swift
-│   └── Agent/
-│       ├── AgentPanelController.swift
-│       └── TranscriptView.swift
-├── Models/
-│   └── AgentSession.swift
-├── Services/
-│   └── AgentManager.swift
-└── Resources/
-    ├── Info.plist
-    └── PromptConduit.entitlements
+app/
+├── macOS/          # Native macOS app (Swift/SwiftUI) - Reference implementation
+├── tauri/          # Cross-platform app (Rust + React) - macOS, Windows, Linux
+├── docs/           # Documentation
+└── .claude/        # Claude Code commands
 ```
 
-## Development
+## macOS Native App
+
+The original native macOS implementation using Swift, SwiftUI, and SwiftTerm.
 
 ### Building
 
 ```bash
-# Generate Xcode project
-xcodegen generate
-
-# Build from command line
-xcodebuild -project PromptConduit.xcodeproj -scheme PromptConduit build
+cd macOS
+xcodebuild -project PromptConduit.xcodeproj -scheme PromptConduit -configuration Debug build
 ```
 
-### Testing
+### Running
 
 ```bash
-xcodebuild -project PromptConduit.xcodeproj -scheme PromptConduit test
+open ~/Library/Developer/Xcode/DerivedData/PromptConduit-*/Build/Products/Debug/PromptConduit.app
 ```
 
-## License
+## Tauri Cross-Platform App
 
-Copyright © 2024 PromptConduit. All rights reserved.
+Cross-platform implementation supporting macOS, Windows, and Linux using Tauri (Rust + React).
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (latest stable)
+- [Node.js](https://nodejs.org/) (v18+)
+- Platform-specific requirements:
+  - **macOS**: Xcode Command Line Tools
+  - **Windows**: Visual Studio Build Tools, WebView2
+  - **Linux**: webkit2gtk, build-essential
+
+### Development
+
+```bash
+cd tauri
+npm install
+npm run tauri dev
+```
+
+### Building for Production
+
+```bash
+cd tauri
+npm run tauri build
+```
+
+The built application will be in `tauri/src-tauri/target/release/bundle/`.
+
+## Architecture
+
+### macOS Native
+- **SwiftTerm** for terminal emulation
+- **UNUserNotificationCenter** for notifications
+- Native PTY via Foundation
+
+### Tauri Cross-Platform
+- **portable-pty** (Rust) for cross-platform PTY
+- **xterm.js** for terminal UI
+- **tauri-plugin-notification** for native notifications
+- React + TypeScript frontend
