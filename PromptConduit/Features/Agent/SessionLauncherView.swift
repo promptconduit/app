@@ -24,7 +24,7 @@ private enum LauncherTokens {
 struct SessionLauncherView: View {
     let onStartNew: (String, String) -> Void
     let onResume: (SessionHistory) -> Void
-    let onLaunchTerminal: (String) -> Void  // Launch single embedded terminal with directory
+    let onLaunchTerminal: (String, String?) -> Void  // Launch single embedded terminal with directory and optional prompt
     let onLaunchMultiTerminal: ([String], GridLayout, String?) -> Void  // Launch multiple terminals
     let onCancel: () -> Void
 
@@ -467,7 +467,7 @@ struct SessionLauncherView: View {
     private var singleLaunchButton: some View {
         Button(action: {
             settings.addRecentRepository(path: effectiveDirectory)
-            onLaunchTerminal(effectiveDirectory)
+            onLaunchTerminal(effectiveDirectory, prompt.isEmpty ? nil : prompt)
         }) {
             HStack(spacing: 8) {
                 Image(systemName: "terminal.fill")
