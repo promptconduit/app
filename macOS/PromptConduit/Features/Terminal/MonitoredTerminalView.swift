@@ -72,14 +72,14 @@ class MonitoredTerminalView: LocalProcessTerminalView {
         super.init(frame: frame)
         terminalLog("INIT - Terminal view created (frame)")
         setupContextMenu()
-        setupMouseMonitors()
+        setupMouseMonitors()  // Re-enabled for debugging selection
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         terminalLog("INIT - Terminal view created (coder)")
         setupContextMenu()
-        setupMouseMonitors()
+        setupMouseMonitors()  // Re-enabled for debugging selection
     }
 
     deinit {
@@ -136,18 +136,23 @@ class MonitoredTerminalView: LocalProcessTerminalView {
 
     private func handleMouseDown(_ event: NSEvent) {
         guard isEventInView(event) else { return }
+        terminalLog("DEBUG handleMouseDown - clickCount: \(event.clickCount), selectionActive: \(selectionActive)")
+        terminalLog("DEBUG handleMouseDown - frame: \(frame), bounds: \(bounds)")
+        terminalLog("DEBUG handleMouseDown - terminal cols: \(getTerminal().cols), rows: \(getTerminal().rows)")
         isSelecting = true
         startSelectionTimer()
     }
 
     private func handleMouseDragged(_ event: NSEvent) {
         guard isEventInView(event) else { return }
+        terminalLog("DEBUG handleMouseDragged - selectionActive: \(selectionActive), getSelection: '\(getSelection() ?? "nil")'")
         if isSelecting {
             resetSelectionTimer()
         }
     }
 
     private func handleMouseUp(_ event: NSEvent) {
+        terminalLog("DEBUG handleMouseUp - isSelecting: \(isSelecting), selectionActive: \(selectionActive), getSelection: '\(getSelection() ?? "nil")'")
         guard isSelecting else { return }
         // Small delay to allow the selection to finalize before processing pending data
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -208,45 +213,107 @@ class MonitoredTerminalView: LocalProcessTerminalView {
         selectAllItem.keyEquivalentModifierMask = .command
         menu.addItem(selectAllItem)
 
+        menu.addItem(NSMenuItem.separator())
+
+        // Test option: Select All & Copy (to verify selectAll works)
+        let selectAllCopyItem = NSMenuItem(title: "Select All & Copy", action: #selector(selectAllAndCopy(_:)), keyEquivalent: "")
+        selectAllCopyItem.target = self  // Must set target for custom actions
+        menu.addItem(selectAllCopyItem)
+
         self.menu = menu
     }
 
     // MARK: - Copy & Selection Support
 
     /// Copies the selected terminal text to the clipboard
+    /// Works around SwiftTerm bug where getSelection() returns empty even when selection is active
     @objc override func copy(_ sender: Any?) {
-        guard let selectedText = getSelection(), !selectedText.isEmpty else {
-            NSSound.beep()
+        terminalLog("DEBUG copy() - selectionActive: \(selectionActive)")
+
+        // First try the normal getSelection()
+        if let text = getSelection(), !text.isEmpty {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+            terminalLog("DEBUG copy() - copied \(text.count) chars via getSelection()")
             return
         }
 
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(selectedText, forType: .string)
-        terminalLog("Copied \(selectedText.count) characters to clipboard")
+        // Workaround: SwiftTerm's getSelection() returns empty even when selection is active
+        // Fall back to copying visible terminal content using getText()
+        if selectionActive {
+            let terminal = getTerminal()
+            let startPos = Position(col: 0, row: 0)
+            let endPos = Position(col: terminal.cols - 1, row: terminal.rows - 1)
+            let directText = terminal.getText(start: startPos, end: endPos)
+            let trimmedText = directText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !trimmedText.isEmpty {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(trimmedText, forType: .string)
+                terminalLog("DEBUG copy() - copied \(trimmedText.count) chars via getText() workaround")
+                return
+            }
+        }
+
+        // Last resort: call parent implementation
+        super.copy(sender)
+        terminalLog("DEBUG copy() - called super.copy()")
+    }
+
+    /// Select all text and copy - for testing
+    @objc func selectAllAndCopy(_ sender: Any?) {
+        let terminal = getTerminal()
+        terminalLog("DEBUG selectAllAndCopy - terminal cols: \(terminal.cols), rows: \(terminal.rows)")
+        terminalLog("DEBUG selectAllAndCopy - buffer yDisp: \(terminal.buffer.yDisp)")
+
+        terminalLog("DEBUG selectAllAndCopy - before selectAll, selectionActive: \(selectionActive)")
+        selectAll()
+        terminalLog("DEBUG selectAllAndCopy - after selectAll, selectionActive: \(selectionActive)")
+
+        // Try using getText directly with known coordinates
+        let startPos = Position(col: 0, row: 0)
+        let endPos = Position(col: terminal.cols - 1, row: terminal.rows - 1)
+        let directText = terminal.getText(start: startPos, end: endPos)
+        terminalLog("DEBUG selectAllAndCopy - terminal.getText(0,0 to \(terminal.cols-1),\(terminal.rows-1)): '\(directText.prefix(100))...' (length: \(directText.count))")
+
+        let selection = getSelection()
+        terminalLog("DEBUG selectAllAndCopy - getSelection(): '\(selection ?? "nil")' (length: \(selection?.count ?? -1))")
+
+        // Use direct getText result if getSelection fails
+        let textToCopy = (selection?.isEmpty == false) ? selection! : directText
+        let trimmedText = textToCopy.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !trimmedText.isEmpty {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(trimmedText, forType: .string)
+            terminalLog("DEBUG selectAllAndCopy - copied \(trimmedText.count) chars")
+        } else {
+            terminalLog("DEBUG selectAllAndCopy - no text to copy")
+        }
     }
 
     /// Validates menu items - enables Copy only when there's a selection
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(copy(_:)) {
-            if let selectedText = getSelection() {
-                return !selectedText.isEmpty
-            }
-            return false
+            terminalLog("DEBUG validateUserInterfaceItem - selectionActive: \(selectionActive)")
+            let selection = getSelection()
+            terminalLog("DEBUG validateUserInterfaceItem - getSelection(): '\(selection ?? "nil")'")
+            // Use selectionActive as the primary check since it's more reliable
+            return selectionActive
+        }
+        // Always enable "Select All & Copy" for testing
+        if item.action == #selector(selectAllAndCopy(_:)) {
+            terminalLog("DEBUG validateUserInterfaceItem - selectAllAndCopy: always enabled")
+            return true
         }
         return super.validateUserInterfaceItem(item)
     }
 
-    /// Handle keyboard shortcuts for copy (Cmd+C)
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // Handle Cmd+C for copy
-        if event.modifierFlags.contains(.command),
-           event.charactersIgnoringModifiers?.lowercased() == "c" {
-            copy(nil)
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
+    // Note: Removed custom performKeyEquivalent override for Cmd+C
+    // Let the standard menu system and SwiftTerm handle copy natively
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
         terminalLog("dataReceived called with \(slice.count) bytes, isSelecting: \(isSelecting)")

@@ -14,55 +14,53 @@ class TerminalPanel: NSPanel {
     private let imageService = ImageAttachmentService.shared
 
     override func sendEvent(_ event: NSEvent) {
-        // Check for Cmd+C (copy)
-        if event.type == .keyDown,
-           event.modifierFlags.contains(.command),
-           event.charactersIgnoringModifiers?.lowercased() == "c" {
-            handleCopy()
-            return // Don't pass to terminal (we handled it)
-        }
+        // Intercept Cmd+C and Cmd+V before they reach SwiftTerm's keyDown
+        // (SwiftTerm's keyDown clears selection before processing, so we must handle copy first)
 
-        // Check for Cmd+V (paste)
         if event.type == .keyDown,
-           event.modifierFlags.contains(.command),
-           event.charactersIgnoringModifiers?.lowercased() == "v" {
+           event.modifierFlags.contains(.command) {
 
-            // Check if pasteboard contains an image
-            if imageService.pasteboardContainsImage() {
-                handleImagePaste()
-                return // Don't pass to terminal
+            let key = event.charactersIgnoringModifiers?.lowercased()
+
+            // Handle Cmd+C (copy) - must intercept before SwiftTerm clears selection in keyDown
+            if key == "c" {
+                if let terminal = terminalView ?? findTerminalView(in: contentView ?? NSView()) {
+                    // Try getSelection first
+                    if let selectedText = terminal.getSelection(), !selectedText.isEmpty {
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        pasteboard.setString(selectedText, forType: .string)
+                        return // Don't pass to terminal
+                    }
+                    // Workaround: SwiftTerm's getSelection() returns empty even when selection is active
+                    // Fall back to copying visible terminal content
+                    if terminal.selectionActive {
+                        let term = terminal.getTerminal()
+                        let startPos = Position(col: 0, row: 0)
+                        let endPos = Position(col: term.cols - 1, row: term.rows - 1)
+                        let directText = term.getText(start: startPos, end: endPos)
+                        let trimmedText = directText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmedText.isEmpty {
+                            let pasteboard = NSPasteboard.general
+                            pasteboard.clearContents()
+                            pasteboard.setString(trimmedText, forType: .string)
+                            return // Don't pass to terminal
+                        }
+                    }
+                }
+            }
+
+            // Handle Cmd+V (paste) - check for image
+            if key == "v" {
+                if imageService.pasteboardContainsImage() {
+                    handleImagePaste()
+                    return // Don't pass to terminal
+                }
             }
         }
 
         // Pass all other events through normally
         super.sendEvent(event)
-    }
-
-    /// Handles copying selected text from the terminal
-    private func handleCopy() {
-        guard let terminal = terminalView else {
-            // Try to find terminal view if not cached
-            findAndStoreTerminalView()
-            guard let terminal = terminalView else {
-                NSSound.beep()
-                return
-            }
-            performCopy(from: terminal)
-            return
-        }
-        performCopy(from: terminal)
-    }
-
-    /// Performs the actual copy operation
-    private func performCopy(from terminal: LocalProcessTerminalView) {
-        guard let selectedText = terminal.getSelection(), !selectedText.isEmpty else {
-            NSSound.beep()
-            return
-        }
-
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(selectedText, forType: .string)
     }
 
     /// Handles pasting an image from the clipboard
@@ -119,24 +117,27 @@ class TerminalWindow: NSWindow {
     private let imageService = ImageAttachmentService.shared
 
     override func sendEvent(_ event: NSEvent) {
-        // Check for Cmd+C (copy)
+        // Intercept Cmd+C and Cmd+V before they reach SwiftTerm's keyDown
+        // (SwiftTerm's keyDown clears selection before processing, so we must handle copy first)
+
         if event.type == .keyDown,
-           event.modifierFlags.contains(.command),
-           event.charactersIgnoringModifiers?.lowercased() == "c" {
-            if handleCopy() {
-                return // Don't pass to terminal (we handled it)
+           event.modifierFlags.contains(.command) {
+
+            let key = event.charactersIgnoringModifiers?.lowercased()
+
+            // Handle Cmd+C (copy) - must intercept before SwiftTerm clears selection in keyDown
+            if key == "c" {
+                if handleCopy() {
+                    return // Copy succeeded, don't pass to terminal
+                }
             }
-        }
 
-        // Check for Cmd+V (paste)
-        if event.type == .keyDown,
-           event.modifierFlags.contains(.command),
-           event.charactersIgnoringModifiers?.lowercased() == "v" {
-
-            // Check if pasteboard contains an image
-            if imageService.pasteboardContainsImage() {
-                handleImagePaste()
-                return // Don't pass to terminal
+            // Handle Cmd+V (paste) - check for image
+            if key == "v" {
+                if imageService.pasteboardContainsImage() {
+                    handleImagePaste()
+                    return // Don't pass to terminal
+                }
             }
         }
 
@@ -149,19 +150,34 @@ class TerminalWindow: NSWindow {
     private func handleCopy() -> Bool {
         // Find the focused terminal view (first responder in hierarchy)
         guard let terminal = findFocusedTerminal() else {
-            NSSound.beep()
-            return false
+            return false // No terminal found, let event pass through
         }
 
-        guard let selectedText = terminal.getSelection(), !selectedText.isEmpty else {
-            NSSound.beep()
-            return false
+        // Try getSelection first
+        if let selectedText = terminal.getSelection(), !selectedText.isEmpty {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(selectedText, forType: .string)
+            return true
         }
 
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(selectedText, forType: .string)
-        return true
+        // Workaround: SwiftTerm's getSelection() returns empty even when selection is active
+        // Fall back to copying visible terminal content
+        if terminal.selectionActive {
+            let term = terminal.getTerminal()
+            let startPos = Position(col: 0, row: 0)
+            let endPos = Position(col: term.cols - 1, row: term.rows - 1)
+            let directText = term.getText(start: startPos, end: endPos)
+            let trimmedText = directText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedText.isEmpty {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(trimmedText, forType: .string)
+                return true
+            }
+        }
+
+        return false // No selection, let event pass through
     }
 
     /// Handles pasting an image from the clipboard into the focused terminal
