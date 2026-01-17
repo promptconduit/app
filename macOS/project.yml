@@ -10,7 +10,7 @@ options:
 packages:
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
-    from: "1.2.0"
+    exactVersion: "1.5.1"
 
 settings:
   base:

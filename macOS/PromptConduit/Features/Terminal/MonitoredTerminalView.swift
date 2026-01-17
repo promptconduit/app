@@ -68,6 +68,38 @@ class MonitoredTerminalView: LocalProcessTerminalView {
     private var mouseUpMonitor: Any?
     private var mouseDragMonitor: Any?
 
+    // MARK: - Custom Selection Tracking (workaround for SwiftTerm bugs)
+
+    /// Start position of our tracked selection (in terminal coordinates)
+    private(set) var trackedSelectionStart: Position?
+
+    /// End position of our tracked selection (in terminal coordinates)
+    private(set) var trackedSelectionEnd: Position?
+
+    /// Returns the text from our tracked selection coordinates
+    /// This works around SwiftTerm's buggy getSelection() that returns empty
+    func getTrackedSelectionText() -> String? {
+        guard let start = trackedSelectionStart, let end = trackedSelectionEnd else {
+            return nil
+        }
+
+        let terminal = getTerminal()
+        let (minPos, maxPos) = orderPositions(start, end)
+
+        terminalLog("DEBUG getTrackedSelectionText - (\(minPos.col), \(minPos.row)) to (\(maxPos.col), \(maxPos.row))")
+
+        let text = terminal.getText(start: minPos, end: maxPos)
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return trimmedText.isEmpty ? nil : trimmedText
+    }
+
+    /// Clears the tracked selection
+    func clearTrackedSelection() {
+        trackedSelectionStart = nil
+        trackedSelectionEnd = nil
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         terminalLog("INIT - Terminal view created (frame)")
@@ -134,25 +166,77 @@ class MonitoredTerminalView: LocalProcessTerminalView {
         return bounds.contains(locationInView)
     }
 
+    /// Converts a point in view coordinates to terminal grid position
+    /// This is our own implementation since SwiftTerm's calculateMouseHit is internal
+    private func convertPointToTerminalPosition(_ point: CGPoint) -> Position {
+        let terminal = getTerminal()
+
+        // Get cell dimensions from font metrics (same as SwiftTerm uses internally)
+        // SwiftTerm uses: ascent + descent + leading for height, and advance width for width
+        let fontMetrics = self.font
+        let cellHeight = ceil(fontMetrics.ascender - fontMetrics.descender + fontMetrics.leading)
+        let cellWidth = fontMetrics.maximumAdvancement.width
+
+        // Convert point to terminal coordinates
+        // Note: NSView has origin at bottom-left, so we need to flip Y
+        let col = Int(point.x / cellWidth)
+        let row = Int((bounds.height - point.y) / cellHeight)
+
+        // Clamp to valid range
+        let clampedCol = max(0, min(col, terminal.cols - 1))
+        let clampedRow = max(0, min(row, terminal.rows - 1))
+
+        // Add buffer scroll offset for the actual buffer position
+        let bufferRow = clampedRow + terminal.buffer.yDisp
+
+        terminalLog("DEBUG convertPointToTerminalPosition - point: \(point), cellSize: \(cellWidth)x\(cellHeight)")
+        terminalLog("DEBUG convertPointToTerminalPosition - raw: col=\(col), row=\(row), bufferRow=\(bufferRow)")
+        terminalLog("DEBUG convertPointToTerminalPosition - frame: \(frame), bounds: \(bounds)")
+        terminalLog("DEBUG convertPointToTerminalPosition - font metrics: ascender=\(fontMetrics.ascender), descender=\(fontMetrics.descender), leading=\(fontMetrics.leading)")
+
+        return Position(col: clampedCol, row: bufferRow)
+    }
+
     private func handleMouseDown(_ event: NSEvent) {
         guard isEventInView(event) else { return }
         terminalLog("DEBUG handleMouseDown - clickCount: \(event.clickCount), selectionActive: \(selectionActive)")
         terminalLog("DEBUG handleMouseDown - frame: \(frame), bounds: \(bounds)")
         terminalLog("DEBUG handleMouseDown - terminal cols: \(getTerminal().cols), rows: \(getTerminal().rows)")
+
+        // Convert mouse location to view coordinates
+        let locationInView = convert(event.locationInWindow, from: nil)
+
+        // Track selection start position ourselves
+        trackedSelectionStart = convertPointToTerminalPosition(locationInView)
+        trackedSelectionEnd = trackedSelectionStart
+        terminalLog("DEBUG handleMouseDown - trackedSelectionStart: col=\(trackedSelectionStart?.col ?? -1), row=\(trackedSelectionStart?.row ?? -1)")
+
         isSelecting = true
         startSelectionTimer()
     }
 
     private func handleMouseDragged(_ event: NSEvent) {
         guard isEventInView(event) else { return }
-        terminalLog("DEBUG handleMouseDragged - selectionActive: \(selectionActive), getSelection: '\(getSelection() ?? "nil")'")
+
         if isSelecting {
+            // Convert mouse location to view coordinates and update end position
+            let locationInView = convert(event.locationInWindow, from: nil)
+            trackedSelectionEnd = convertPointToTerminalPosition(locationInView)
+            terminalLog("DEBUG handleMouseDragged - trackedSelectionEnd: col=\(trackedSelectionEnd?.col ?? -1), row=\(trackedSelectionEnd?.row ?? -1)")
             resetSelectionTimer()
         }
     }
 
     private func handleMouseUp(_ event: NSEvent) {
         terminalLog("DEBUG handleMouseUp - isSelecting: \(isSelecting), selectionActive: \(selectionActive), getSelection: '\(getSelection() ?? "nil")'")
+
+        if isSelecting {
+            // Final update of end position
+            let locationInView = convert(event.locationInWindow, from: nil)
+            trackedSelectionEnd = convertPointToTerminalPosition(locationInView)
+            terminalLog("DEBUG handleMouseUp - final trackedSelectionEnd: col=\(trackedSelectionEnd?.col ?? -1), row=\(trackedSelectionEnd?.row ?? -1)")
+        }
+
         guard isSelecting else { return }
         // Small delay to allow the selection to finalize before processing pending data
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -229,6 +313,8 @@ class MonitoredTerminalView: LocalProcessTerminalView {
     /// Works around SwiftTerm bug where getSelection() returns empty even when selection is active
     @objc override func copy(_ sender: Any?) {
         terminalLog("DEBUG copy() - selectionActive: \(selectionActive)")
+        terminalLog("DEBUG copy() - trackedSelectionStart: col=\(trackedSelectionStart?.col ?? -1), row=\(trackedSelectionStart?.row ?? -1)")
+        terminalLog("DEBUG copy() - trackedSelectionEnd: col=\(trackedSelectionEnd?.col ?? -1), row=\(trackedSelectionEnd?.row ?? -1)")
 
         // First try the normal getSelection()
         if let text = getSelection(), !text.isEmpty {
@@ -239,8 +325,31 @@ class MonitoredTerminalView: LocalProcessTerminalView {
             return
         }
 
-        // Workaround: SwiftTerm's getSelection() returns empty even when selection is active
-        // Fall back to copying visible terminal content using getText()
+        // Workaround #1: Use our tracked selection coordinates
+        // This works around SwiftTerm's buggy getSelection() that returns empty
+        if let start = trackedSelectionStart, let end = trackedSelectionEnd {
+            let terminal = getTerminal()
+
+            // Determine min/max positions (selection could be made in either direction)
+            let (minPos, maxPos) = orderPositions(start, end)
+
+            terminalLog("DEBUG copy() - using tracked selection: (\(minPos.col), \(minPos.row)) to (\(maxPos.col), \(maxPos.row))")
+
+            let directText = terminal.getText(start: minPos, end: maxPos)
+            let trimmedText = directText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !trimmedText.isEmpty {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(trimmedText, forType: .string)
+                terminalLog("DEBUG copy() - copied \(trimmedText.count) chars via tracked selection")
+                return
+            } else {
+                terminalLog("DEBUG copy() - tracked selection returned empty text")
+            }
+        }
+
+        // Workaround #2: Fall back to copying visible terminal content using getText()
         if selectionActive {
             let terminal = getTerminal()
             let startPos = Position(col: 0, row: 0)
@@ -252,7 +361,7 @@ class MonitoredTerminalView: LocalProcessTerminalView {
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 pasteboard.setString(trimmedText, forType: .string)
-                terminalLog("DEBUG copy() - copied \(trimmedText.count) chars via getText() workaround")
+                terminalLog("DEBUG copy() - copied \(trimmedText.count) chars via getText() workaround (all visible)")
                 return
             }
         }
@@ -260,6 +369,16 @@ class MonitoredTerminalView: LocalProcessTerminalView {
         // Last resort: call parent implementation
         super.copy(sender)
         terminalLog("DEBUG copy() - called super.copy()")
+    }
+
+    /// Orders two positions so that minPos comes before maxPos (for text extraction)
+    private func orderPositions(_ p1: Position, _ p2: Position) -> (min: Position, max: Position) {
+        // Compare by row first, then by column
+        if p1.row < p2.row || (p1.row == p2.row && p1.col <= p2.col) {
+            return (p1, p2)
+        } else {
+            return (p2, p1)
+        }
     }
 
     /// Select all text and copy - for testing
