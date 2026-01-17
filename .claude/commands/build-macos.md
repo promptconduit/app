@@ -15,7 +15,7 @@ This skill supports multiple actions based on what the user needs:
 Build the app without running it:
 
 ```bash
-cd /Users/scotthavird/Documents/GitHub/promptconduit/app
+cd /Users/scotthavird/Documents/GitHub/promptconduit/app/macOS
 xcodebuild -scheme PromptConduit -configuration Debug build 2>&1
 ```
 
@@ -29,7 +29,7 @@ Check the output for:
 Build the app and launch it:
 
 ```bash
-cd /Users/scotthavird/Documents/GitHub/promptconduit/app
+cd /Users/scotthavird/Documents/GitHub/promptconduit/app/macOS
 
 # Build first
 xcodebuild -scheme PromptConduit -configuration Debug build 2>&1
@@ -77,7 +77,7 @@ Analyze crash reports for:
 Clean derived data and rebuild:
 
 ```bash
-cd /Users/scotthavird/Documents/GitHub/promptconduit/app
+cd /Users/scotthavird/Documents/GitHub/promptconduit/app/macOS
 
 # Clean build artifacts
 xcodebuild -scheme PromptConduit clean 2>&1
@@ -116,7 +116,7 @@ When investigating issues:
 ## Project Structure Reference
 
 Key files for debugging:
-- `PromptConduit/AppDelegate.swift` - App lifecycle
-- `PromptConduit/Features/Agent/AgentPanelController.swift` - Window management
-- `PromptConduit/Features/Terminal/MultiTerminalGridView.swift` - Multi-terminal grid
-- `PromptConduit/Services/TerminalSessionManager.swift` - Session lifecycle
+- `macOS/PromptConduit/AppDelegate.swift` - App lifecycle
+- `macOS/PromptConduit/Features/Agent/AgentPanelController.swift` - Window management
+- `macOS/PromptConduit/Features/Terminal/MultiTerminalGridView.swift` - Multi-terminal grid
+- `macOS/PromptConduit/Services/TerminalSessionManager.swift` - Session lifecycle

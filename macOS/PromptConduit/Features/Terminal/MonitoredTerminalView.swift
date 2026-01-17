@@ -49,16 +49,149 @@ class MonitoredTerminalView: LocalProcessTerminalView {
         "❯ ",          // Prompt with space
     ]
 
+    // MARK: - Selection Preservation
+
+    /// Whether user is actively selecting text (mouse is down)
+    private var isSelecting = false
+
+    /// Buffer for data received while user is selecting
+    private var selectionPendingData: [ArraySlice<UInt8>] = []
+
+    /// Timer to flush pending data after selection timeout
+    private var selectionFlushTimer: Timer?
+
+    /// Maximum time to buffer data while selecting (seconds)
+    private let selectionTimeout: TimeInterval = 2.0
+
+    /// Event monitors for tracking mouse state
+    private var mouseDownMonitor: Any?
+    private var mouseUpMonitor: Any?
+    private var mouseDragMonitor: Any?
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         terminalLog("INIT - Terminal view created (frame)")
         setupContextMenu()
+        setupMouseMonitors()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         terminalLog("INIT - Terminal view created (coder)")
         setupContextMenu()
+        setupMouseMonitors()
+    }
+
+    deinit {
+        removeMouseMonitors()
+        selectionFlushTimer?.invalidate()
+    }
+
+    // MARK: - Mouse Event Monitoring
+
+    /// Sets up event monitors to track mouse state for selection preservation
+    private func setupMouseMonitors() {
+        // Monitor mouse down events
+        mouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            self?.handleMouseDown(event)
+            return event
+        }
+
+        // Monitor mouse drag events
+        mouseDragMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDragged) { [weak self] event in
+            self?.handleMouseDragged(event)
+            return event
+        }
+
+        // Monitor mouse up events
+        mouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            self?.handleMouseUp(event)
+            return event
+        }
+    }
+
+    /// Removes event monitors
+    private func removeMouseMonitors() {
+        if let monitor = mouseDownMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseDownMonitor = nil
+        }
+        if let monitor = mouseUpMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseUpMonitor = nil
+        }
+        if let monitor = mouseDragMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseDragMonitor = nil
+        }
+    }
+
+    /// Checks if the event is within this terminal view
+    private func isEventInView(_ event: NSEvent) -> Bool {
+        guard let window = self.window, event.window == window else { return false }
+        let locationInWindow = event.locationInWindow
+        let locationInView = convert(locationInWindow, from: nil)
+        return bounds.contains(locationInView)
+    }
+
+    private func handleMouseDown(_ event: NSEvent) {
+        guard isEventInView(event) else { return }
+        isSelecting = true
+        startSelectionTimer()
+    }
+
+    private func handleMouseDragged(_ event: NSEvent) {
+        guard isEventInView(event) else { return }
+        if isSelecting {
+            resetSelectionTimer()
+        }
+    }
+
+    private func handleMouseUp(_ event: NSEvent) {
+        guard isSelecting else { return }
+        // Small delay to allow the selection to finalize before processing pending data
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.endSelection()
+        }
+    }
+
+    /// Starts a timer to auto-flush pending data if selection takes too long
+    private func startSelectionTimer() {
+        selectionFlushTimer?.invalidate()
+        selectionFlushTimer = Timer.scheduledTimer(withTimeInterval: selectionTimeout, repeats: false) { [weak self] _ in
+            self?.endSelection()
+        }
+    }
+
+    /// Resets the selection timer
+    private func resetSelectionTimer() {
+        if isSelecting {
+            startSelectionTimer()
+        }
+    }
+
+    /// Ends selection mode and processes any buffered data
+    private func endSelection() {
+        selectionFlushTimer?.invalidate()
+        selectionFlushTimer = nil
+        isSelecting = false
+
+        // Process any buffered data
+        flushPendingData()
+    }
+
+    /// Flushes pending data that was buffered during selection
+    private func flushPendingData() {
+        guard !selectionPendingData.isEmpty else { return }
+
+        terminalLog("Flushing \(selectionPendingData.count) pending data chunks after selection")
+
+        let dataToProcess = selectionPendingData
+        selectionPendingData.removeAll()
+
+        for slice in dataToProcess {
+            processReceivedData(slice: slice)
+        }
     }
 
     // MARK: - Context Menu
@@ -116,8 +249,20 @@ class MonitoredTerminalView: LocalProcessTerminalView {
     }
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
-        terminalLog("dataReceived called with \(slice.count) bytes")
+        terminalLog("dataReceived called with \(slice.count) bytes, isSelecting: \(isSelecting)")
 
+        // If user is selecting text, buffer the data to prevent selection from being cleared
+        if isSelecting {
+            terminalLog("Buffering data while user is selecting")
+            selectionPendingData.append(slice)
+            return
+        }
+
+        processReceivedData(slice: slice)
+    }
+
+    /// Processes received data (either immediately or after buffering during selection)
+    private func processReceivedData(slice: ArraySlice<UInt8>) {
         // Call parent to feed data to terminal
         super.dataReceived(slice: slice)
 
