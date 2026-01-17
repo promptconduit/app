@@ -171,20 +171,29 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 
 /// A complete panel view containing the terminal and header
 struct TerminalSessionView: View {
+    let sessionId: UUID
     let repoName: String
     let workingDirectory: String
+    let initialPrompt: String?
     let onClose: () -> Void
     /// Callback when the process terminates naturally
     var onTerminated: (() -> Void)?
     /// Callback to insert text into the terminal (set by parent for paste handling)
     var onImageAttached: ((String) -> Void)?
 
+    @ObservedObject private var terminalManager = TerminalSessionManager.shared
     @State private var isTerminated = false
     @State private var terminalView: LocalProcessTerminalView?
     @State private var showingImagePicker = false
     @State private var isDragOver = false
+    @State private var promptSent = false
 
     private let imageService = ImageAttachmentService.shared
+
+    /// Whether the session is waiting for input (from TerminalSessionManager)
+    private var isWaiting: Bool {
+        terminalManager.session(for: sessionId)?.isWaiting ?? false
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -219,15 +228,15 @@ struct TerminalSessionView: View {
                 // Status indicator
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(isTerminated ? SwiftUI.Color.red : SwiftUI.Color.green)
+                        .fill(statusColor)
                         .frame(width: 8, height: 8)
-                    Text(isTerminated ? "Terminated" : "Running")
+                    Text(statusText)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(isTerminated ? .red : .green)
+                        .foregroundColor(statusColor)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background((isTerminated ? SwiftUI.Color.red : SwiftUI.Color.green).opacity(0.15))
+                .background(statusColor.opacity(0.15))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 Button(action: onClose) {
@@ -255,6 +264,13 @@ struct TerminalSessionView: View {
                     },
                     onTerminalReady: { terminal in
                         terminalView = terminal
+                    },
+                    onOutputReceived: { text in
+                        // Feed output to terminal session manager for waiting state detection
+                        terminalManager.processOutput(sessionId, text: text)
+                    },
+                    onClaudeReady: {
+                        sendInitialPromptIfNeeded()
                     }
                 )
                 .background(SwiftUI.Color.black)
@@ -278,6 +294,68 @@ struct TerminalSessionView: View {
             allowsMultipleSelection: true
         ) { result in
             handleFileImport(result)
+        }
+    }
+
+    // MARK: - Status Helpers
+
+    private var statusColor: SwiftUI.Color {
+        if isTerminated {
+            return .red
+        } else if isWaiting {
+            return .yellow
+        } else {
+            return .green
+        }
+    }
+
+    private var statusText: String {
+        if isTerminated {
+            return "Terminated"
+        } else if isWaiting {
+            return "Waiting"
+        } else {
+            return "Running"
+        }
+    }
+
+    // MARK: - Initial Prompt
+
+    /// Sends the initial prompt to Claude when ready
+    private func sendInitialPromptIfNeeded() {
+        guard let prompt = initialPrompt, !prompt.isEmpty else { return }
+        guard !promptSent else { return }
+
+        promptSent = true
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Wait a short moment for Claude to be fully ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
+            guard let terminal = terminalView else { return }
+
+            // Send prompt text
+            terminal.send(txt: trimmedPrompt)
+
+            // Simulate Enter key press after a brief delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if let event = NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: terminal.window?.windowNumber ?? 0,
+                    context: nil,
+                    characters: "\r",
+                    charactersIgnoringModifiers: "\r",
+                    isARepeat: false,
+                    keyCode: 36  // Return key
+                ) {
+                    terminal.keyDown(with: event)
+                } else {
+                    // Fallback: send ASCII Enter
+                    terminal.send([13])
+                }
+            }
         }
     }
 
@@ -382,8 +460,10 @@ struct TerminalSessionView: View {
 
 #Preview {
     TerminalSessionView(
+        sessionId: UUID(),
         repoName: "my-project",
         workingDirectory: "/Users/user/Projects/my-project",
+        initialPrompt: nil,
         onClose: {}
     )
     .frame(width: 800, height: 600)

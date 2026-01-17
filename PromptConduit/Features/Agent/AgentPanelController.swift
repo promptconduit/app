@@ -110,11 +110,11 @@ class AgentPanelController {
                 // Resume the session
                 self?.resumeAgent(from: sessionHistory)
             },
-            onLaunchTerminal: { [weak self, weak panel] directory in
+            onLaunchTerminal: { [weak self, weak panel] directory, initialPrompt in
                 // Close the launcher
                 panel?.close()
                 // Launch embedded terminal
-                self?.launchTerminal(in: directory)
+                self?.launchTerminal(in: directory, initialPrompt: initialPrompt)
             },
             onLaunchMultiTerminal: { [weak self, weak panel] repositories, layout, initialPrompt in
                 // Close the launcher
@@ -347,7 +347,7 @@ class AgentPanelController {
     }
 
     /// Launches an embedded terminal with Claude Code
-    private func launchTerminal(in directory: String) {
+    private func launchTerminal(in directory: String, initialPrompt: String? = nil) {
         let panel = createTerminalPanel()
         let repoName = URL(fileURLWithPath: directory).lastPathComponent
         panel.title = "Claude Code - \(repoName)"
@@ -364,8 +364,10 @@ class AgentPanelController {
 
         // Create terminal session view with callbacks
         let view = TerminalSessionView(
+            sessionId: terminalId,
             repoName: repoName,
             workingDirectory: directory,
+            initialPrompt: initialPrompt,
             onClose: { [weak panel] in
                 // Terminate session and clean up
                 TerminalSessionManager.shared.terminateSession(terminalId)
