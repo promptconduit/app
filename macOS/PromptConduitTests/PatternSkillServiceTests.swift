@@ -37,6 +37,12 @@ final class PatternSkillServiceTests: XCTestCase {
 
         var members: [PatternMember] = []
         for i in 0..<memberCount {
+            // Distribute members across repos based on repoDiversity
+            // When repoDiversity=1, all use repoPath
+            // When repoDiversity=2, alternate between repoPath and project1
+            let repoIndex = i % repoDiversity
+            let memberRepoPath = repoIndex == 0 ? repoPath : "/Users/test/project\(repoIndex)"
+
             let memberMessage = IndexedMessage(
                 id: Int64(i + 1),
                 sessionId: "session-\(i % sessionDiversity + 1)",
@@ -44,7 +50,7 @@ final class PatternSkillServiceTests: XCTestCase {
                 messageType: "user",
                 content: "Similar message \(i)",
                 embedding: [],
-                repoPath: i < repoDiversity ? "/Users/test/project\(i)" : repoPath,
+                repoPath: memberRepoPath,
                 timestamp: Date()
             )
             members.append(PatternMember(

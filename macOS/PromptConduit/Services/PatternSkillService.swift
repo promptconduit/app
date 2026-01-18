@@ -204,12 +204,18 @@ class PatternSkillService {
     func sanitizeSkillName(_ name: String) -> String {
         // Remove or replace invalid characters
         let invalidChars = CharacterSet.alphanumerics.inverted.subtracting(CharacterSet(charactersIn: "-_"))
-        let sanitized = name
+        var sanitized = name
             .components(separatedBy: invalidChars)
             .joined(separator: "-")
             .lowercased()
-            .replacingOccurrences(of: "--", with: "-")  // Remove double dashes
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))  // Remove leading/trailing dashes
+
+        // Collapse multiple consecutive dashes into a single dash
+        while sanitized.contains("--") {
+            sanitized = sanitized.replacingOccurrences(of: "--", with: "-")
+        }
+
+        // Remove leading/trailing dashes
+        sanitized = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
 
         return sanitized.isEmpty ? "skill" : sanitized
     }
