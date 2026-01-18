@@ -16,6 +16,8 @@
 		04B1C2D3E4F5A67890BC2346 /* TranscriptIndexService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B1C2D3E4F5A67890BC2347 /* TranscriptIndexService.swift */; };
 		04B1C2D3E4F5A67890BC2348 /* TranscriptParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B1C2D3E4F5A67890BC2349 /* TranscriptParserTests.swift */; };
 		04B1C2D3E4F5A67890BC234A /* EmbeddingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B1C2D3E4F5A67890BC234B /* EmbeddingServiceTests.swift */; };
+		04C1D2E3F4A5B67890CD2350 /* PatternDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C1D2E3F4A5B67890CD2351 /* PatternDetectionService.swift */; };
+		04C1D2E3F4A5B67890CD2352 /* PatternDetectionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C1D2E3F4A5B67890CD2353 /* PatternDetectionServiceTests.swift */; };
 		04ED0B71263511058262BE8A /* TerminalOutputMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39D0C878325B21553F2FA55A /* TerminalOutputMonitor.swift */; };
 		05A3AECF2D14572CFFD37CE1 /* PTYSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E0E605902CC4527F31B7CC2 /* PTYSession.swift */; };
 		09E21C20031C6E2DDE1BEFCC /* TerminalSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 199C59B522537F6E55F7C7FC /* TerminalSessionManager.swift */; };
@@ -73,6 +75,8 @@
 		04B1C2D3E4F5A67890BC2347 /* TranscriptIndexService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptIndexService.swift; sourceTree = "<group>"; };
 		04B1C2D3E4F5A67890BC2349 /* TranscriptParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptParserTests.swift; sourceTree = "<group>"; };
 		04B1C2D3E4F5A67890BC234B /* EmbeddingServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingServiceTests.swift; sourceTree = "<group>"; };
+		04C1D2E3F4A5B67890CD2351 /* PatternDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternDetectionService.swift; sourceTree = "<group>"; };
+		04C1D2E3F4A5B67890CD2353 /* PatternDetectionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternDetectionServiceTests.swift; sourceTree = "<group>"; };
 		05CF87CE2D41BCD266905EE2 /* PromptConduit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PromptConduit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0D34EAE5DAAEEF85C90498E8 /* PromptConduitApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptConduitApp.swift; sourceTree = "<group>"; };
 		0E0E605902CC4527F31B7CC2 /* PTYSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYSession.swift; sourceTree = "<group>"; };
@@ -182,6 +186,7 @@
 				21C66B19CC6B7A578E29246A /* HookNotificationService.swift */,
 				5326D3178EE1608E20C3E6CB /* ImageAttachmentService.swift */,
 				EACBD1049D1F118A4A59672F /* NotificationService.swift */,
+				04C1D2E3F4A5B67890CD2351 /* PatternDetectionService.swift */,
 				28E249FE84141C631CAA2DF2 /* ProcessDetectionService.swift */,
 				8AFDA1DAFE542BFD87056608 /* SettingsService.swift */,
 				AF8BDAA52F7C52621E8DA50B /* SlashCommandsService.swift */,
@@ -218,6 +223,7 @@
 				04A1B2C3D4E5F67890AB1239 /* ClaudeSessionDiscoveryTests.swift */,
 				04B1C2D3E4F5A67890BC234B /* EmbeddingServiceTests.swift */,
 				0466CEEC8F3A4711F399B387 /* OutputParserTests.swift */,
+				04C1D2E3F4A5B67890CD2353 /* PatternDetectionServiceTests.swift */,
 				8EE5B376EB05B0E9B6E7AE42 /* PTYSessionTests.swift */,
 				7B2E2F8E424E5429A197D7E2 /* TerminalOutputMonitorTests.swift */,
 				04B1C2D3E4F5A67890BC2349 /* TranscriptParserTests.swift */,
@@ -399,6 +405,7 @@
 				22B846A8C1C72A58560F1ACC /* MultiTerminalGridView.swift in Sources */,
 				303D5CB5163D9DEAB1338DEA /* NotificationService.swift in Sources */,
 				F1AD359EBC54ED462C348466 /* OutputParser.swift in Sources */,
+				04C1D2E3F4A5B67890CD2350 /* PatternDetectionService.swift in Sources */,
 				05A3AECF2D14572CFFD37CE1 /* PTYSession.swift in Sources */,
 				A2742FBCF423780F362835BD /* ProcessDetectionService.swift in Sources */,
 				916E014FC116CDF3596EA407 /* PromptConduitApp.swift in Sources */,
@@ -428,6 +435,7 @@
 				04A1B2C3D4E5F67890AB123A /* ClaudeSessionDiscoveryTests.swift in Sources */,
 				04B1C2D3E4F5A67890BC234A /* EmbeddingServiceTests.swift in Sources */,
 				AFD03EFA8FFF1D5F86A5B2D4 /* OutputParserTests.swift in Sources */,
+				04C1D2E3F4A5B67890CD2352 /* PatternDetectionServiceTests.swift in Sources */,
 				BEA9671906B7E73606AF25A9 /* PTYSessionTests.swift in Sources */,
 				FC7674AC55E02D109EF50068 /* TerminalOutputMonitorTests.swift in Sources */,
 				04B1C2D3E4F5A67890BC2348 /* TranscriptParserTests.swift in Sources */,

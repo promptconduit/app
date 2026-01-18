@@ -207,6 +207,82 @@ class TranscriptIndexDatabase {
         return results
     }
 
+    /// Get all user message embeddings with metadata for pattern detection
+    func getUserMessageEmbeddings() -> [(id: Int64, sessionId: String, repoPath: String, timestamp: Date, embedding: [Double])] {
+        let sql = "SELECT id, session_id, repo_path, timestamp, embedding FROM indexed_messages WHERE message_type = 'user'"
+
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return []
+        }
+
+        var results: [(id: Int64, sessionId: String, repoPath: String, timestamp: Date, embedding: [Double])] = []
+
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let id = sqlite3_column_int64(statement, 0)
+
+            guard let sessionIdPtr = sqlite3_column_text(statement, 1),
+                  let repoPathPtr = sqlite3_column_text(statement, 2),
+                  let timestampPtr = sqlite3_column_text(statement, 3),
+                  let blobPointer = sqlite3_column_blob(statement, 4) else {
+                continue
+            }
+
+            let blobSize = sqlite3_column_bytes(statement, 4)
+            let data = Data(bytes: blobPointer, count: Int(blobSize))
+
+            guard let embedding = EmbeddingService.dataToEmbedding(data) else {
+                continue
+            }
+
+            let timestampString = String(cString: timestampPtr)
+            let timestamp = dateFormatter.date(from: timestampString) ?? Date()
+
+            results.append((
+                id: id,
+                sessionId: String(cString: sessionIdPtr),
+                repoPath: String(cString: repoPathPtr),
+                timestamp: timestamp,
+                embedding: embedding
+            ))
+        }
+
+        return results
+    }
+
+    /// Batch fetch messages by IDs
+    func getMessagesByIds(_ ids: [Int64]) -> [IndexedMessage] {
+        guard !ids.isEmpty else { return [] }
+
+        // Build parameterized query with placeholders
+        let placeholders = ids.map { _ in "?" }.joined(separator: ", ")
+        let sql = "SELECT id, session_id, message_uuid, message_type, content, embedding, repo_path, timestamp FROM indexed_messages WHERE id IN (\(placeholders))"
+
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return []
+        }
+
+        // Bind all IDs
+        for (index, id) in ids.enumerated() {
+            sqlite3_bind_int64(statement, Int32(index + 1), id)
+        }
+
+        var results: [IndexedMessage] = []
+
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let message = extractMessage(from: statement) {
+                results.append(message)
+            }
+        }
+
+        return results
+    }
+
     /// Get total indexed message count
     func getMessageCount() -> Int {
         let sql = "SELECT COUNT(*) FROM indexed_messages"

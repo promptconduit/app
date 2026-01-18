@@ -30,15 +30,19 @@ private enum DashboardTokens {
 enum DashboardSearchMode: String, CaseIterable {
     case sessions = "Sessions"
     case semantic = "Semantic"
+    case patterns = "Patterns"
 }
 
 struct SessionDashboardView: View {
     @StateObject private var discovery = ClaudeSessionDiscovery.shared
     @StateObject private var indexService = TranscriptIndexService.shared
+    @StateObject private var patternService = PatternDetectionService.shared
     @State private var selectedSession: DiscoveredSession?
     @State private var searchText: String = ""
     @State private var searchMode: DashboardSearchMode = .sessions
     @State private var selectedSearchResult: TranscriptSearchResult?
+    @State private var selectedPattern: DetectedPattern?
+    @State private var expandedPatternId: UUID?
 
     let onResumeSession: (DiscoveredSession) -> Void
     let onClose: () -> Void
@@ -75,8 +79,10 @@ struct SessionDashboardView: View {
                 sessionSidebar
                     .frame(minWidth: 280, maxWidth: 400)
 
-                // Right panel - Session detail or search result detail
-                if let result = selectedSearchResult {
+                // Right panel - Session detail, search result detail, or pattern detail
+                if let pattern = selectedPattern {
+                    patternDetail(pattern)
+                } else if let result = selectedSearchResult {
                     searchResultDetail(result)
                 } else if let session = selectedSession {
                     sessionDetail(session)
@@ -175,10 +181,13 @@ struct SessionDashboardView: View {
                 .background(DashboardTokens.borderColor)
 
             // Content area - depends on search mode
-            if searchMode == .semantic {
-                semanticSearchContent
-            } else {
+            switch searchMode {
+            case .sessions:
                 sessionTreeContent
+            case .semantic:
+                semanticSearchContent
+            case .patterns:
+                patternsContent
             }
 
             // Last refresh indicator
@@ -199,6 +208,17 @@ struct SessionDashboardView: View {
         .onAppear {
             // Start indexing when dashboard opens
             indexService.startIndexing()
+        }
+        .onChange(of: searchMode) { newMode in
+            // Clear selections when switching modes
+            selectedSession = nil
+            selectedSearchResult = nil
+            selectedPattern = nil
+
+            // Start pattern detection when switching to patterns mode
+            if newMode == .patterns && patternService.patterns.isEmpty && !patternService.isAnalyzing {
+                patternService.detectPatterns()
+            }
         }
     }
 
@@ -328,6 +348,266 @@ struct SessionDashboardView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Patterns Content
+
+    private var patternsContent: some View {
+        Group {
+            if patternService.isAnalyzing {
+                // Analyzing in progress
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(1.5)
+
+                    Text("Analyzing patterns...")
+                        .font(.system(size: 14))
+                        .foregroundColor(DashboardTokens.textSecondary)
+
+                    Text("Finding similar prompts across your sessions")
+                        .font(.system(size: 12))
+                        .foregroundColor(DashboardTokens.textMuted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if patternService.patterns.isEmpty {
+                // No patterns found
+                VStack(spacing: 12) {
+                    Image(systemName: "rectangle.3.group")
+                        .font(.system(size: 32))
+                        .foregroundColor(DashboardTokens.textMuted)
+
+                    Text("No Patterns Found")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(DashboardTokens.textPrimary)
+
+                    Text("Patterns will appear when you have similar prompts\nacross multiple sessions.")
+                        .font(.system(size: 12))
+                        .foregroundColor(DashboardTokens.textMuted)
+                        .multilineTextAlignment(.center)
+
+                    if indexService.messageCount > 0 {
+                        Button(action: { patternService.detectPatterns() }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.clockwise")
+                                Text("Analyze Patterns")
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(DashboardTokens.accentPurple.opacity(0.2))
+                            .foregroundColor(DashboardTokens.accentPurple)
+                            .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 8)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // Pattern list
+                VStack(spacing: 8) {
+                    // Header with count and refresh
+                    HStack {
+                        Text("\(patternService.patterns.count) patterns detected")
+                            .font(.system(size: 11))
+                            .foregroundColor(DashboardTokens.textMuted)
+
+                        Spacer()
+
+                        Button(action: { patternService.detectPatterns() }) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 11))
+                                .foregroundColor(DashboardTokens.accentPurple)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Re-analyze patterns")
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
+
+                    ScrollView {
+                        LazyVStack(spacing: 4) {
+                            ForEach(patternService.patterns) { pattern in
+                                PatternRow(
+                                    pattern: pattern,
+                                    isSelected: selectedPattern?.id == pattern.id,
+                                    isExpanded: expandedPatternId == pattern.id,
+                                    onSelect: {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            selectedPattern = pattern
+                                            selectedSession = nil
+                                            selectedSearchResult = nil
+                                        }
+                                    },
+                                    onToggleExpand: {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            if expandedPatternId == pattern.id {
+                                                expandedPatternId = nil
+                                            } else {
+                                                expandedPatternId = pattern.id
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        .padding(8)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Pattern Detail
+
+    private func patternDetail(_ pattern: DetectedPattern) -> some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "rectangle.3.group")
+                            .font(.system(size: 14))
+                            .foregroundColor(DashboardTokens.accentPurple)
+
+                        Text("Pattern")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(DashboardTokens.textPrimary)
+                    }
+
+                    HStack(spacing: 12) {
+                        Label("\(pattern.count) prompts", systemImage: "text.bubble")
+                            .font(.system(size: 12))
+                            .foregroundColor(DashboardTokens.textSecondary)
+
+                        Text("•")
+                            .foregroundColor(DashboardTokens.textMuted)
+
+                        Label("\(pattern.sessionCount) sessions", systemImage: "folder")
+                            .font(.system(size: 12))
+                            .foregroundColor(DashboardTokens.textMuted)
+
+                        if pattern.repoCount > 1 {
+                            Text("•")
+                                .foregroundColor(DashboardTokens.textMuted)
+
+                            Label("\(pattern.repoCount) repos", systemImage: "externaldrive")
+                                .font(.system(size: 12))
+                                .foregroundColor(DashboardTokens.textMuted)
+                        }
+                    }
+                }
+
+                Spacer()
+
+                // Score badge
+                HStack(spacing: 4) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 10))
+                    Text(String(format: "%.1f", pattern.score.compositeScore))
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundColor(DashboardTokens.accentPurple)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(DashboardTokens.accentPurple.opacity(0.15))
+                .cornerRadius(6)
+            }
+            .padding(20)
+            .background(DashboardTokens.backgroundSecondary)
+
+            Divider()
+                .background(DashboardTokens.borderColor)
+
+            // Pattern content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Representative prompt
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Representative Prompt")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(DashboardTokens.textSecondary)
+
+                        Text(pattern.representative.content)
+                            .font(.system(size: 13))
+                            .foregroundColor(DashboardTokens.textPrimary)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DashboardTokens.backgroundCard)
+                            .cornerRadius(8)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+
+                    // All similar prompts
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Similar Prompts (\(pattern.members.count))")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(DashboardTokens.textSecondary)
+
+                        VStack(spacing: 4) {
+                            ForEach(pattern.members) { member in
+                                HStack(alignment: .top, spacing: 12) {
+                                    // Similarity badge
+                                    Text("\(Int(member.similarityToRepresentative * 100))%")
+                                        .font(.system(size: 10, weight: .medium).monospacedDigit())
+                                        .foregroundColor(similarityColor(member.similarityToRepresentative))
+                                        .frame(width: 36)
+
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(member.message.content)
+                                            .font(.system(size: 12))
+                                            .foregroundColor(DashboardTokens.textPrimary)
+                                            .lineLimit(2)
+
+                                        HStack(spacing: 8) {
+                                            Text(member.message.sessionId.prefix(8) + "...")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(DashboardTokens.textMuted)
+
+                                            Text("•")
+                                                .foregroundColor(DashboardTokens.textMuted)
+                                                .font(.system(size: 8))
+
+                                            Text(formatPatternDate(member.message.timestamp))
+                                                .font(.system(size: 10))
+                                                .foregroundColor(DashboardTokens.textMuted)
+                                        }
+                                    }
+                                }
+                                .padding(10)
+                                .background(DashboardTokens.backgroundCard)
+                                .cornerRadius(6)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+                }
+            }
+        }
+        .background(DashboardTokens.backgroundPrimary)
+    }
+
+    // MARK: - Pattern Helpers
+
+    private func similarityColor(_ similarity: Double) -> Color {
+        if similarity >= 0.9 {
+            return DashboardTokens.statusRunning
+        } else if similarity >= 0.8 {
+            return DashboardTokens.accentCyan
+        } else if similarity >= 0.7 {
+            return DashboardTokens.statusWaiting
+        } else {
+            return DashboardTokens.textMuted
+        }
+    }
+
+    private func formatPatternDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     // MARK: - Session Detail
@@ -884,6 +1164,125 @@ struct SessionStatusIndicator: View {
         case .waiting: return DashboardTokens.statusWaiting
         case .idle: return DashboardTokens.statusIdle
         case .error: return DashboardTokens.statusError
+        }
+    }
+}
+
+// MARK: - Pattern Row
+
+struct PatternRow: View {
+    let pattern: DetectedPattern
+    let isSelected: Bool
+    let isExpanded: Bool
+    let onSelect: () -> Void
+    let onToggleExpand: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onSelect) {
+                HStack(spacing: 10) {
+                    // Expand/collapse button
+                    Button(action: onToggleExpand) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(DashboardTokens.textMuted)
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(.plain)
+
+                    // Pattern icon
+                    Image(systemName: "rectangle.3.group")
+                        .font(.system(size: 11))
+                        .foregroundColor(DashboardTokens.accentPurple)
+
+                    // Pattern preview
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(pattern.preview)
+                            .font(.system(size: 12))
+                            .foregroundColor(isSelected ? DashboardTokens.textPrimary : DashboardTokens.textSecondary)
+                            .lineLimit(1)
+
+                        HStack(spacing: 6) {
+                            Text("\(pattern.count) prompts")
+                                .font(.system(size: 10))
+                                .foregroundColor(DashboardTokens.textMuted)
+
+                            Text("•")
+                                .font(.system(size: 8))
+                                .foregroundColor(DashboardTokens.textMuted)
+
+                            Text("\(pattern.sessionCount) sessions")
+                                .font(.system(size: 10))
+                                .foregroundColor(DashboardTokens.textMuted)
+                        }
+                    }
+
+                    Spacer()
+
+                    // Score badge
+                    Text(String(format: "%.1f", pattern.score.compositeScore))
+                        .font(.system(size: 10, weight: .medium).monospacedDigit())
+                        .foregroundColor(DashboardTokens.accentPurple)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(DashboardTokens.accentPurple.opacity(0.15))
+                        .cornerRadius(4)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    isSelected ? DashboardTokens.accentPurple.opacity(0.15) :
+                        (isHovered ? DashboardTokens.backgroundCardHover : Color.clear)
+                )
+                .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+            .onHover { isHovered = $0 }
+
+            // Expanded members preview
+            if isExpanded {
+                VStack(spacing: 2) {
+                    ForEach(pattern.members.prefix(5)) { member in
+                        HStack(spacing: 8) {
+                            Text("\(Int(member.similarityToRepresentative * 100))%")
+                                .font(.system(size: 9, weight: .medium).monospacedDigit())
+                                .foregroundColor(memberSimilarityColor(member.similarityToRepresentative))
+                                .frame(width: 28, alignment: .trailing)
+
+                            Text(member.message.content)
+                                .font(.system(size: 11))
+                                .foregroundColor(DashboardTokens.textSecondary)
+                                .lineLimit(1)
+
+                            Spacer()
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                    }
+
+                    if pattern.members.count > 5 {
+                        Text("+ \(pattern.members.count - 5) more...")
+                            .font(.system(size: 10))
+                            .foregroundColor(DashboardTokens.textMuted)
+                            .padding(.top, 2)
+                    }
+                }
+                .padding(.leading, 44)
+                .padding(.trailing, 12)
+                .padding(.bottom, 8)
+            }
+        }
+    }
+
+    private func memberSimilarityColor(_ similarity: Double) -> Color {
+        if similarity >= 0.9 {
+            return DashboardTokens.statusRunning
+        } else if similarity >= 0.8 {
+            return DashboardTokens.accentCyan
+        } else {
+            return DashboardTokens.textMuted
         }
     }
 }
