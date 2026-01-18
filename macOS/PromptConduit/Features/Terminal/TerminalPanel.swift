@@ -25,14 +25,24 @@ class TerminalPanel: NSPanel {
             // Handle Cmd+C (copy) - must intercept before SwiftTerm clears selection in keyDown
             if key == "c" {
                 if let terminal = terminalView ?? findTerminalView(in: contentView ?? NSView()) {
-                    // Try getSelection first
+                    // Try getSelection first (SwiftTerm's native method)
                     if let selectedText = terminal.getSelection(), !selectedText.isEmpty {
                         let pasteboard = NSPasteboard.general
                         pasteboard.clearContents()
                         pasteboard.setString(selectedText, forType: .string)
                         return // Don't pass to terminal
                     }
-                    // Workaround: SwiftTerm's getSelection() returns empty even when selection is active
+
+                    // Workaround #1: Use our tracked selection coordinates
+                    if let monitoredTerminal = terminal as? MonitoredTerminalView,
+                       let trackedText = monitoredTerminal.getTrackedSelectionText() {
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        pasteboard.setString(trackedText, forType: .string)
+                        return // Don't pass to terminal
+                    }
+
+                    // Workaround #2: SwiftTerm's getSelection() returns empty even when selection is active
                     // Fall back to copying visible terminal content
                     if terminal.selectionActive {
                         let term = terminal.getTerminal()
@@ -153,7 +163,7 @@ class TerminalWindow: NSWindow {
             return false // No terminal found, let event pass through
         }
 
-        // Try getSelection first
+        // Try getSelection first (SwiftTerm's native method)
         if let selectedText = terminal.getSelection(), !selectedText.isEmpty {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
@@ -161,7 +171,16 @@ class TerminalWindow: NSWindow {
             return true
         }
 
-        // Workaround: SwiftTerm's getSelection() returns empty even when selection is active
+        // Workaround #1: Use our tracked selection coordinates
+        if let monitoredTerminal = terminal as? MonitoredTerminalView,
+           let trackedText = monitoredTerminal.getTrackedSelectionText() {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(trackedText, forType: .string)
+            return true
+        }
+
+        // Workaround #2: SwiftTerm's getSelection() returns empty even when selection is active
         // Fall back to copying visible terminal content
         if terminal.selectionActive {
             let term = terminal.getTerminal()
