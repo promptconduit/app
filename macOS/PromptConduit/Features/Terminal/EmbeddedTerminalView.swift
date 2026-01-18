@@ -175,11 +175,33 @@ struct TerminalSessionView: View {
     let repoName: String
     let workingDirectory: String
     let initialPrompt: String?
+    /// Additional Claude Code arguments (e.g., ["--resume", "session-id"])
+    let additionalArguments: [String]
     let onClose: () -> Void
     /// Callback when the process terminates naturally
     var onTerminated: (() -> Void)?
     /// Callback to insert text into the terminal (set by parent for paste handling)
     var onImageAttached: ((String) -> Void)?
+
+    init(
+        sessionId: UUID,
+        repoName: String,
+        workingDirectory: String,
+        initialPrompt: String? = nil,
+        additionalArguments: [String] = [],
+        onClose: @escaping () -> Void,
+        onTerminated: (() -> Void)? = nil,
+        onImageAttached: ((String) -> Void)? = nil
+    ) {
+        self.sessionId = sessionId
+        self.repoName = repoName
+        self.workingDirectory = workingDirectory
+        self.initialPrompt = initialPrompt
+        self.additionalArguments = additionalArguments
+        self.onClose = onClose
+        self.onTerminated = onTerminated
+        self.onImageAttached = onImageAttached
+    }
 
     @ObservedObject private var terminalManager = TerminalSessionManager.shared
     @State private var isTerminated = false
@@ -258,6 +280,7 @@ struct TerminalSessionView: View {
             ZStack {
                 EmbeddedTerminalView(
                     workingDirectory: workingDirectory,
+                    arguments: ["--dangerously-skip-permissions"] + additionalArguments,
                     onTerminated: {
                         isTerminated = true
                         onTerminated?()
