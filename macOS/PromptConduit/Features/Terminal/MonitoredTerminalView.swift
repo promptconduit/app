@@ -1,5 +1,6 @@
 import SwiftTerm
 import AppKit
+import QuartzCore
 
 /// File-based logger for debugging terminal output capture
 private func terminalLog(_ message: String) {
@@ -49,7 +50,7 @@ class MonitoredTerminalView: LocalProcessTerminalView {
         "❯ ",          // Prompt with space
     ]
 
-    // MARK: - Selection Preservation
+    // MARK: - Selection State
 
     /// Whether user is actively selecting text (mouse is down)
     private var isSelecting = false
@@ -62,11 +63,6 @@ class MonitoredTerminalView: LocalProcessTerminalView {
 
     /// Maximum time to buffer data while selecting (seconds)
     private let selectionTimeout: TimeInterval = 2.0
-
-    /// Event monitors for tracking mouse state
-    private var mouseDownMonitor: Any?
-    private var mouseUpMonitor: Any?
-    private var mouseDragMonitor: Any?
 
     // MARK: - Custom Selection Tracking (workaround for SwiftTerm bugs)
 
@@ -104,66 +100,179 @@ class MonitoredTerminalView: LocalProcessTerminalView {
         super.init(frame: frame)
         terminalLog("INIT - Terminal view created (frame)")
         setupContextMenu()
-        setupMouseMonitors()  // Re-enabled for debugging selection
+        setupMouseMonitoring()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         terminalLog("INIT - Terminal view created (coder)")
         setupContextMenu()
-        setupMouseMonitors()  // Re-enabled for debugging selection
+        setupMouseMonitoring()
     }
 
     deinit {
-        removeMouseMonitors()
         selectionFlushTimer?.invalidate()
-    }
-
-    // MARK: - Mouse Event Monitoring
-
-    /// Sets up event monitors to track mouse state for selection preservation
-    private func setupMouseMonitors() {
-        // Monitor mouse down events
-        mouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            self?.handleMouseDown(event)
-            return event
-        }
-
-        // Monitor mouse drag events
-        mouseDragMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDragged) { [weak self] event in
-            self?.handleMouseDragged(event)
-            return event
-        }
-
-        // Monitor mouse up events
-        mouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-            self?.handleMouseUp(event)
-            return event
+        if let monitor = mouseMonitor {
+            NSEvent.removeMonitor(monitor)
         }
     }
 
-    /// Removes event monitors
-    private func removeMouseMonitors() {
-        if let monitor = mouseDownMonitor {
-            NSEvent.removeMonitor(monitor)
-            mouseDownMonitor = nil
-        }
-        if let monitor = mouseUpMonitor {
-            NSEvent.removeMonitor(monitor)
-            mouseUpMonitor = nil
-        }
-        if let monitor = mouseDragMonitor {
-            NSEvent.removeMonitor(monitor)
-            mouseDragMonitor = nil
+    // MARK: - Mouse Event Handling (Custom Selection)
+
+    /// Local event monitor for mouse events (needed because SwiftTerm's mouseUp/draw aren't open)
+    private var mouseMonitor: Any?
+
+    /// Selection highlight layer
+    private var selectionLayer: CALayer?
+
+    /// Setup mouse monitoring for custom selection tracking
+    private func setupMouseMonitoring() {
+        // Setup layer-backed view for custom selection drawing
+        wantsLayer = true
+
+        // Create selection highlight layer
+        let layer = CALayer()
+        layer.backgroundColor = NSColor.selectedTextBackgroundColor.withAlphaComponent(0.4).cgColor
+        layer.isHidden = true
+        self.layer?.addSublayer(layer)
+        selectionLayer = layer
+
+        // Monitor mouse events locally
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            guard let self = self else { return event }
+            guard let window = self.window, event.window == window else { return event }
+
+            let locationInWindow = event.locationInWindow
+            let locationInView = self.convert(locationInWindow, from: nil)
+
+            // Only handle if click is within our bounds
+            guard self.bounds.contains(locationInView) else { return event }
+
+            switch event.type {
+            case .leftMouseDown:
+                self.handleCustomMouseDown(locationInView: locationInView, event: event)
+            case .leftMouseDragged:
+                self.handleCustomMouseDragged(locationInView: locationInView)
+            case .leftMouseUp:
+                self.handleCustomMouseUp(locationInView: locationInView)
+            default:
+                break
+            }
+
+            return event
         }
     }
 
-    /// Checks if the event is within this terminal view
-    private func isEventInView(_ event: NSEvent) -> Bool {
-        guard let window = self.window, event.window == window else { return false }
-        let locationInWindow = event.locationInWindow
-        let locationInView = convert(locationInWindow, from: nil)
-        return bounds.contains(locationInView)
+    /// Handle mouse down for custom selection
+    private func handleCustomMouseDown(locationInView: CGPoint, event: NSEvent) {
+        terminalLog("DEBUG handleCustomMouseDown - clickCount: \(event.clickCount)")
+        terminalLog("DEBUG handleCustomMouseDown - frame: \(frame), bounds: \(bounds)")
+        terminalLog("DEBUG handleCustomMouseDown - terminal cols: \(getTerminal().cols), rows: \(getTerminal().rows)")
+
+        // Clear SwiftTerm's selection to prevent its (offset) visual rendering
+        selectNone()
+
+        // Track our own selection with correct coordinates
+        trackedSelectionStart = convertPointToTerminalPosition(locationInView)
+        trackedSelectionEnd = trackedSelectionStart
+        isSelecting = true
+
+        terminalLog("DEBUG handleCustomMouseDown - trackedSelectionStart: col=\(trackedSelectionStart?.col ?? -1), row=\(trackedSelectionStart?.row ?? -1)")
+
+        // Update selection layer
+        updateSelectionLayer()
+
+        startSelectionTimer()
+    }
+
+    /// Handle mouse dragged for custom selection
+    private func handleCustomMouseDragged(locationInView: CGPoint) {
+        guard isSelecting else { return }
+
+        trackedSelectionEnd = convertPointToTerminalPosition(locationInView)
+
+        terminalLog("DEBUG handleCustomMouseDragged - trackedSelectionEnd: col=\(trackedSelectionEnd?.col ?? -1), row=\(trackedSelectionEnd?.row ?? -1)")
+
+        // Update selection layer
+        updateSelectionLayer()
+
+        resetSelectionTimer()
+    }
+
+    /// Handle mouse up for custom selection
+    private func handleCustomMouseUp(locationInView: CGPoint) {
+        terminalLog("DEBUG handleCustomMouseUp - isSelecting: \(isSelecting)")
+
+        if isSelecting {
+            trackedSelectionEnd = convertPointToTerminalPosition(locationInView)
+            terminalLog("DEBUG handleCustomMouseUp - final trackedSelectionEnd: col=\(trackedSelectionEnd?.col ?? -1), row=\(trackedSelectionEnd?.row ?? -1)")
+        }
+
+        // End selection mode after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.endSelection()
+        }
+    }
+
+    /// Updates the selection highlight layer to show current selection
+    private func updateSelectionLayer() {
+        guard let start = trackedSelectionStart, let end = trackedSelectionEnd else {
+            selectionLayer?.isHidden = true
+            return
+        }
+
+        // Don't show if start and end are the same (no actual selection)
+        if start.col == end.col && start.row == end.row {
+            selectionLayer?.isHidden = true
+            return
+        }
+
+        let terminal = getTerminal()
+        let (minPos, maxPos) = orderPositions(start, end)
+
+        // Get cell dimensions from font metrics
+        let cellWidth = font.maximumAdvancement.width
+        let cellHeight = ceil(font.ascender - font.descender + font.leading)
+
+        // Convert buffer positions back to visible positions
+        let visibleStartRow = max(0, minPos.row - terminal.buffer.yDisp)
+        let visibleEndRow = max(0, maxPos.row - terminal.buffer.yDisp)
+
+        // For now, draw a single rectangle covering the selection
+        // (For multi-row selections, we'd need multiple layers or a custom drawing approach)
+        let startCol = minPos.col
+        let endCol = maxPos.col
+
+        // Calculate rectangle position
+        // Y is flipped: row 0 is at the top of the view
+        let x = CGFloat(startCol) * cellWidth
+        let topY = bounds.height - CGFloat(visibleStartRow + 1) * cellHeight
+        let bottomY = bounds.height - CGFloat(visibleEndRow + 1) * cellHeight
+        let width: CGFloat
+        let height: CGFloat
+
+        if visibleStartRow == visibleEndRow {
+            // Single row selection
+            width = CGFloat(endCol - startCol + 1) * cellWidth
+            height = cellHeight
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            selectionLayer?.frame = NSRect(x: x, y: topY, width: width, height: height)
+            selectionLayer?.isHidden = false
+            CATransaction.commit()
+        } else {
+            // Multi-row selection - draw full width for simplicity
+            // For proper multi-row selection, we'd need multiple layers
+            let fullWidth = CGFloat(terminal.cols) * cellWidth
+            height = topY - bottomY + cellHeight
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            selectionLayer?.frame = NSRect(x: 0, y: bottomY, width: fullWidth, height: height)
+            selectionLayer?.isHidden = false
+            CATransaction.commit()
+        }
     }
 
     /// Converts a point in view coordinates to terminal grid position
@@ -195,53 +304,6 @@ class MonitoredTerminalView: LocalProcessTerminalView {
         terminalLog("DEBUG convertPointToTerminalPosition - font metrics: ascender=\(fontMetrics.ascender), descender=\(fontMetrics.descender), leading=\(fontMetrics.leading)")
 
         return Position(col: clampedCol, row: bufferRow)
-    }
-
-    private func handleMouseDown(_ event: NSEvent) {
-        guard isEventInView(event) else { return }
-        terminalLog("DEBUG handleMouseDown - clickCount: \(event.clickCount), selectionActive: \(selectionActive)")
-        terminalLog("DEBUG handleMouseDown - frame: \(frame), bounds: \(bounds)")
-        terminalLog("DEBUG handleMouseDown - terminal cols: \(getTerminal().cols), rows: \(getTerminal().rows)")
-
-        // Convert mouse location to view coordinates
-        let locationInView = convert(event.locationInWindow, from: nil)
-
-        // Track selection start position ourselves
-        trackedSelectionStart = convertPointToTerminalPosition(locationInView)
-        trackedSelectionEnd = trackedSelectionStart
-        terminalLog("DEBUG handleMouseDown - trackedSelectionStart: col=\(trackedSelectionStart?.col ?? -1), row=\(trackedSelectionStart?.row ?? -1)")
-
-        isSelecting = true
-        startSelectionTimer()
-    }
-
-    private func handleMouseDragged(_ event: NSEvent) {
-        guard isEventInView(event) else { return }
-
-        if isSelecting {
-            // Convert mouse location to view coordinates and update end position
-            let locationInView = convert(event.locationInWindow, from: nil)
-            trackedSelectionEnd = convertPointToTerminalPosition(locationInView)
-            terminalLog("DEBUG handleMouseDragged - trackedSelectionEnd: col=\(trackedSelectionEnd?.col ?? -1), row=\(trackedSelectionEnd?.row ?? -1)")
-            resetSelectionTimer()
-        }
-    }
-
-    private func handleMouseUp(_ event: NSEvent) {
-        terminalLog("DEBUG handleMouseUp - isSelecting: \(isSelecting), selectionActive: \(selectionActive), getSelection: '\(getSelection() ?? "nil")'")
-
-        if isSelecting {
-            // Final update of end position
-            let locationInView = convert(event.locationInWindow, from: nil)
-            trackedSelectionEnd = convertPointToTerminalPosition(locationInView)
-            terminalLog("DEBUG handleMouseUp - final trackedSelectionEnd: col=\(trackedSelectionEnd?.col ?? -1), row=\(trackedSelectionEnd?.row ?? -1)")
-        }
-
-        guard isSelecting else { return }
-        // Small delay to allow the selection to finalize before processing pending data
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.endSelection()
-        }
     }
 
     /// Starts a timer to auto-flush pending data if selection takes too long
