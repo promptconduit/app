@@ -1,8 +1,8 @@
-# Xcode
-*.xcodeproj/
-*.xcworkspace/
+# Xcode - ignore user-specific files but track project structure
 xcuserdata/
 *.xcuserstate
+*.xcscmblueprint
+*.xccheckout
 DerivedData/
 build/
 *.dSYM.zip

@@ -1,0 +1,693 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		04A1B2C3D4E5F67890AB1234 /* ClaudeSessionDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A1B2C3D4E5F67890AB1235 /* ClaudeSessionDiscovery.swift */; };
+		04A1B2C3D4E5F67890AB1236 /* SessionDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A1B2C3D4E5F67890AB1237 /* SessionDashboardView.swift */; };
+		04A1B2C3D4E5F67890AB123A /* ClaudeSessionDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A1B2C3D4E5F67890AB1239 /* ClaudeSessionDiscoveryTests.swift */; };
+		04B1C2D3E4F5A67890BC2340 /* TranscriptParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B1C2D3E4F5A67890BC2341 /* TranscriptParser.swift */; };
+		04B1C2D3E4F5A67890BC2342 /* EmbeddingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B1C2D3E4F5A67890BC2343 /* EmbeddingService.swift */; };
+		04B1C2D3E4F5A67890BC2344 /* TranscriptIndexDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B1C2D3E4F5A67890BC2345 /* TranscriptIndexDatabase.swift */; };
+		04B1C2D3E4F5A67890BC2346 /* TranscriptIndexService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B1C2D3E4F5A67890BC2347 /* TranscriptIndexService.swift */; };
+		04B1C2D3E4F5A67890BC2348 /* TranscriptParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B1C2D3E4F5A67890BC2349 /* TranscriptParserTests.swift */; };
+		04B1C2D3E4F5A67890BC234A /* EmbeddingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B1C2D3E4F5A67890BC234B /* EmbeddingServiceTests.swift */; };
+		04ED0B71263511058262BE8A /* TerminalOutputMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39D0C878325B21553F2FA55A /* TerminalOutputMonitor.swift */; };
+		05A3AECF2D14572CFFD37CE1 /* PTYSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E0E605902CC4527F31B7CC2 /* PTYSession.swift */; };
+		09E21C20031C6E2DDE1BEFCC /* TerminalSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 199C59B522537F6E55F7C7FC /* TerminalSessionManager.swift */; };
+		0BDDBF15F28978DB05BAD5FF /* AgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9CF8FDFC51080A51AD471AC /* AgentSession.swift */; };
+		22B846A8C1C72A58560F1ACC /* MultiTerminalGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4861CDC8ACA228D500459E2F /* MultiTerminalGridView.swift */; };
+		303D5CB5163D9DEAB1338DEA /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EACBD1049D1F118A4A59672F /* NotificationService.swift */; };
+		3871A6B448C1D5DCC7CD8B1D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8D6C2B0E701C4D4F15ECA1 /* SettingsView.swift */; };
+		3BC05FE3EE9C5965A5F3DFC0 /* HookNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C66B19CC6B7A578E29246A /* HookNotificationService.swift */; };
+		3EEA1D2DFDEC59EFE390A70B /* MonitoredTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4166E74759884D80DC4FFF0D /* MonitoredTerminalView.swift */; };
+		3FDA0527E6DC3B49235BAF19 /* AgentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70B2BCCD9556E2BF70365189 /* AgentManager.swift */; };
+		42161C96A16075FF7ECFCA00 /* MultiSessionGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF5976077E90C471DBBDA18 /* MultiSessionGroup.swift */; };
+		4626CA9A8C2A3CEBE88B7F99 /* SessionHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93379B0E9848F747EB6489FF /* SessionHistory.swift */; };
+		4C476ED1B10EA7A23CE15563 /* AgentPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A08EB02F3138796337779B3 /* AgentPanelController.swift */; };
+		61462559AA7E7FA28451DE41 /* RepositoryTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56E225A2B2555600DDC1CD2B /* RepositoryTemplate.swift */; };
+		654A058ADE1EB01CF328540F /* GitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A6C144080D84E96DBBF2E1 /* GitService.swift */; };
+		67F285CAF38B1B081D68EC53 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C125F2C09DFC98518FB1F810 /* SwiftTerm */; };
+		6876A4389CB36B7EB4A5FFC9 /* EmbeddedTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 629DE46140519733D17EDA06 /* EmbeddedTerminalView.swift */; };
+		80BAF8DA26A5BEEA12EE9459 /* ImageAttachmentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5326D3178EE1608E20C3E6CB /* ImageAttachmentService.swift */; };
+		8851834F88CBBAD7601FA1EA /* RepositoriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CD80A141003A28C5DA6B483 /* RepositoriesView.swift */; };
+		916E014FC116CDF3596EA407 /* PromptConduitApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D34EAE5DAAEEF85C90498E8 /* PromptConduitApp.swift */; };
+		9B6AE17CD734E992550780FC /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74B34D1FAC3C18BBD36EFB6F /* TerminalPanel.swift */; };
+		A2742FBCF423780F362835BD /* ProcessDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28E249FE84141C631CAA2DF2 /* ProcessDetectionService.swift */; };
+		AEAD4D337FFE673693D7BB03 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93CE2A268F0E7B8C344AFB55 /* AppDelegate.swift */; };
+		AFD03EFA8FFF1D5F86A5B2D4 /* OutputParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0466CEEC8F3A4711F399B387 /* OutputParserTests.swift */; };
+		BEA9671906B7E73606AF25A9 /* PTYSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE5B376EB05B0E9B6E7AE42 /* PTYSessionTests.swift */; };
+		D77341296B4C490111B91889 /* SlashCommandsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF8BDAA52F7C52621E8DA50B /* SlashCommandsService.swift */; };
+		DB6E622451AD0A224C2DBAC2 /* SettingsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AFDA1DAFE542BFD87056608 /* SettingsService.swift */; };
+		DC41C98C2275222F75537DDF /* GridLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C6C49F0705DB1C8123515B0 /* GridLayout.swift */; };
+		DF1D90BB5C76C65461386DD5 /* TerminalCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDAAC09CCA5555ED2ECFB43 /* TerminalCellView.swift */; };
+		E50C81ED421F4254311B412C /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA67FFB28ADDF164BEAF6DE7 /* MenuBarController.swift */; };
+		EC1BEAFC018797D42BD93309 /* SessionLauncherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F486EB371037D9403A59158C /* SessionLauncherView.swift */; };
+		EF9C2CA3341B3B8EFB2F6190 /* TranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31A5BC2B8DCD0328A00C289D /* TranscriptView.swift */; };
+		F1AD359EBC54ED462C348466 /* OutputParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 252A225C62E38E330103E3B9 /* OutputParser.swift */; };
+		FC7674AC55E02D109EF50068 /* TerminalOutputMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B2E2F8E424E5429A197D7E2 /* TerminalOutputMonitorTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AFB83B7777417931362B108A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 052EC7933CC9CC6254E6A835 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BC40E0560993AA282F1F3C2A;
+			remoteInfo = PromptConduit;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0466CEEC8F3A4711F399B387 /* OutputParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputParserTests.swift; sourceTree = "<group>"; };
+		04A1B2C3D4E5F67890AB1235 /* ClaudeSessionDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeSessionDiscovery.swift; sourceTree = "<group>"; };
+		04A1B2C3D4E5F67890AB1239 /* ClaudeSessionDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeSessionDiscoveryTests.swift; sourceTree = "<group>"; };
+		04A1B2C3D4E5F67890AB1237 /* SessionDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDashboardView.swift; sourceTree = "<group>"; };
+		04B1C2D3E4F5A67890BC2341 /* TranscriptParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptParser.swift; sourceTree = "<group>"; };
+		04B1C2D3E4F5A67890BC2343 /* EmbeddingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingService.swift; sourceTree = "<group>"; };
+		04B1C2D3E4F5A67890BC2345 /* TranscriptIndexDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptIndexDatabase.swift; sourceTree = "<group>"; };
+		04B1C2D3E4F5A67890BC2347 /* TranscriptIndexService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptIndexService.swift; sourceTree = "<group>"; };
+		04B1C2D3E4F5A67890BC2349 /* TranscriptParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptParserTests.swift; sourceTree = "<group>"; };
+		04B1C2D3E4F5A67890BC234B /* EmbeddingServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingServiceTests.swift; sourceTree = "<group>"; };
+		05CF87CE2D41BCD266905EE2 /* PromptConduit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PromptConduit.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0D34EAE5DAAEEF85C90498E8 /* PromptConduitApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptConduitApp.swift; sourceTree = "<group>"; };
+		0E0E605902CC4527F31B7CC2 /* PTYSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYSession.swift; sourceTree = "<group>"; };
+		199C59B522537F6E55F7C7FC /* TerminalSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSessionManager.swift; sourceTree = "<group>"; };
+		21C66B19CC6B7A578E29246A /* HookNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookNotificationService.swift; sourceTree = "<group>"; };
+		252A225C62E38E330103E3B9 /* OutputParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputParser.swift; sourceTree = "<group>"; };
+		27F828590204EAE03E2E2015 /* PromptConduitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PromptConduitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		28E249FE84141C631CAA2DF2 /* ProcessDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectionService.swift; sourceTree = "<group>"; };
+		31A5BC2B8DCD0328A00C289D /* TranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptView.swift; sourceTree = "<group>"; };
+		39D0C878325B21553F2FA55A /* TerminalOutputMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOutputMonitor.swift; sourceTree = "<group>"; };
+		3BF5976077E90C471DBBDA18 /* MultiSessionGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiSessionGroup.swift; sourceTree = "<group>"; };
+		4130460F5F943A6226169F63 /* PromptConduit.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PromptConduit.entitlements; sourceTree = "<group>"; };
+		4166E74759884D80DC4FFF0D /* MonitoredTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitoredTerminalView.swift; sourceTree = "<group>"; };
+		4861CDC8ACA228D500459E2F /* MultiTerminalGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiTerminalGridView.swift; sourceTree = "<group>"; };
+		4CD80A141003A28C5DA6B483 /* RepositoriesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoriesView.swift; sourceTree = "<group>"; };
+		5326D3178EE1608E20C3E6CB /* ImageAttachmentService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageAttachmentService.swift; sourceTree = "<group>"; };
+		56A6C144080D84E96DBBF2E1 /* GitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitService.swift; sourceTree = "<group>"; };
+		56E225A2B2555600DDC1CD2B /* RepositoryTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryTemplate.swift; sourceTree = "<group>"; };
+		5A08EB02F3138796337779B3 /* AgentPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPanelController.swift; sourceTree = "<group>"; };
+		5C6C49F0705DB1C8123515B0 /* GridLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridLayout.swift; sourceTree = "<group>"; };
+		629DE46140519733D17EDA06 /* EmbeddedTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedTerminalView.swift; sourceTree = "<group>"; };
+		70B2BCCD9556E2BF70365189 /* AgentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentManager.swift; sourceTree = "<group>"; };
+		74B34D1FAC3C18BBD36EFB6F /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanel.swift; sourceTree = "<group>"; };
+		7B2E2F8E424E5429A197D7E2 /* TerminalOutputMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOutputMonitorTests.swift; sourceTree = "<group>"; };
+		8AFDA1DAFE542BFD87056608 /* SettingsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsService.swift; sourceTree = "<group>"; };
+		8EE5B376EB05B0E9B6E7AE42 /* PTYSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYSessionTests.swift; sourceTree = "<group>"; };
+		93379B0E9848F747EB6489FF /* SessionHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistory.swift; sourceTree = "<group>"; };
+		9353377F0E90986D3B597935 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		93CE2A268F0E7B8C344AFB55 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		AF8BDAA52F7C52621E8DA50B /* SlashCommandsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandsService.swift; sourceTree = "<group>"; };
+		C9CF8FDFC51080A51AD471AC /* AgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSession.swift; sourceTree = "<group>"; };
+		CB8D6C2B0E701C4D4F15ECA1 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		DA67FFB28ADDF164BEAF6DE7 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
+		EACBD1049D1F118A4A59672F /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		EFDAAC09CCA5555ED2ECFB43 /* TerminalCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCellView.swift; sourceTree = "<group>"; };
+		F486EB371037D9403A59158C /* SessionLauncherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionLauncherView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		9923DE67B3DFCCDA7C8BE780 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				67F285CAF38B1B081D68EC53 /* SwiftTerm in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		345526770498E5DA59841573 = {
+			isa = PBXGroup;
+			children = (
+				4D6135DA39E77557300727D8 /* PromptConduit */,
+				AAA348982AFBB99BC87C9A8F /* PromptConduitTests */,
+				4B269FF30228DD6E4E6A3FFC /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		3660A02D44FE5F47E95D1380 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				9353377F0E90986D3B597935 /* Info.plist */,
+				4130460F5F943A6226169F63 /* PromptConduit.entitlements */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		4B269FF30228DD6E4E6A3FFC /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				05CF87CE2D41BCD266905EE2 /* PromptConduit.app */,
+				27F828590204EAE03E2E2015 /* PromptConduitTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4D6135DA39E77557300727D8 /* PromptConduit */ = {
+			isa = PBXGroup;
+			children = (
+				C92B2C86CDD3301753285E5C /* Core */,
+				FC0729136845353B6F171238 /* Features */,
+				DC489077BB03D1D2B15F1D76 /* Models */,
+				3660A02D44FE5F47E95D1380 /* Resources */,
+				72E2AD9DB5C35C546610533A /* Services */,
+				93CE2A268F0E7B8C344AFB55 /* AppDelegate.swift */,
+				0D34EAE5DAAEEF85C90498E8 /* PromptConduitApp.swift */,
+			);
+			path = PromptConduit;
+			sourceTree = "<group>";
+		};
+		6F665E24456A7BD81C842727 /* Repositories */ = {
+			isa = PBXGroup;
+			children = (
+				4CD80A141003A28C5DA6B483 /* RepositoriesView.swift */,
+			);
+			path = Repositories;
+			sourceTree = "<group>";
+		};
+		72E2AD9DB5C35C546610533A /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				70B2BCCD9556E2BF70365189 /* AgentManager.swift */,
+				04A1B2C3D4E5F67890AB1235 /* ClaudeSessionDiscovery.swift */,
+				04B1C2D3E4F5A67890BC2343 /* EmbeddingService.swift */,
+				56A6C144080D84E96DBBF2E1 /* GitService.swift */,
+				21C66B19CC6B7A578E29246A /* HookNotificationService.swift */,
+				5326D3178EE1608E20C3E6CB /* ImageAttachmentService.swift */,
+				EACBD1049D1F118A4A59672F /* NotificationService.swift */,
+				28E249FE84141C631CAA2DF2 /* ProcessDetectionService.swift */,
+				8AFDA1DAFE542BFD87056608 /* SettingsService.swift */,
+				AF8BDAA52F7C52621E8DA50B /* SlashCommandsService.swift */,
+				199C59B522537F6E55F7C7FC /* TerminalSessionManager.swift */,
+				04B1C2D3E4F5A67890BC2345 /* TranscriptIndexDatabase.swift */,
+				04B1C2D3E4F5A67890BC2347 /* TranscriptIndexService.swift */,
+				04B1C2D3E4F5A67890BC2341 /* TranscriptParser.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		8884AC3D65AB2FC5AFEB6E50 /* PTY */ = {
+			isa = PBXGroup;
+			children = (
+				252A225C62E38E330103E3B9 /* OutputParser.swift */,
+				0E0E605902CC4527F31B7CC2 /* PTYSession.swift */,
+			);
+			path = PTY;
+			sourceTree = "<group>";
+		};
+		A5A2E1D5B55EA3B30912B6F1 /* Agent */ = {
+			isa = PBXGroup;
+			children = (
+				5A08EB02F3138796337779B3 /* AgentPanelController.swift */,
+				F486EB371037D9403A59158C /* SessionLauncherView.swift */,
+				31A5BC2B8DCD0328A00C289D /* TranscriptView.swift */,
+			);
+			path = Agent;
+			sourceTree = "<group>";
+		};
+		AAA348982AFBB99BC87C9A8F /* PromptConduitTests */ = {
+			isa = PBXGroup;
+			children = (
+				04A1B2C3D4E5F67890AB1239 /* ClaudeSessionDiscoveryTests.swift */,
+				04B1C2D3E4F5A67890BC234B /* EmbeddingServiceTests.swift */,
+				0466CEEC8F3A4711F399B387 /* OutputParserTests.swift */,
+				8EE5B376EB05B0E9B6E7AE42 /* PTYSessionTests.swift */,
+				7B2E2F8E424E5429A197D7E2 /* TerminalOutputMonitorTests.swift */,
+				04B1C2D3E4F5A67890BC2349 /* TranscriptParserTests.swift */,
+			);
+			path = PromptConduitTests;
+			sourceTree = "<group>";
+		};
+		C92B2C86CDD3301753285E5C /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				8884AC3D65AB2FC5AFEB6E50 /* PTY */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		DC489077BB03D1D2B15F1D76 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				C9CF8FDFC51080A51AD471AC /* AgentSession.swift */,
+				5C6C49F0705DB1C8123515B0 /* GridLayout.swift */,
+				3BF5976077E90C471DBBDA18 /* MultiSessionGroup.swift */,
+				56E225A2B2555600DDC1CD2B /* RepositoryTemplate.swift */,
+				93379B0E9848F747EB6489FF /* SessionHistory.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		DF93DE5C8CF7545DD016266E /* MenuBar */ = {
+			isa = PBXGroup;
+			children = (
+				DA67FFB28ADDF164BEAF6DE7 /* MenuBarController.swift */,
+			);
+			path = MenuBar;
+			sourceTree = "<group>";
+		};
+		F093A1BDE28591D6F5DBE414 /* Terminal */ = {
+			isa = PBXGroup;
+			children = (
+				629DE46140519733D17EDA06 /* EmbeddedTerminalView.swift */,
+				4166E74759884D80DC4FFF0D /* MonitoredTerminalView.swift */,
+				4861CDC8ACA228D500459E2F /* MultiTerminalGridView.swift */,
+				EFDAAC09CCA5555ED2ECFB43 /* TerminalCellView.swift */,
+				39D0C878325B21553F2FA55A /* TerminalOutputMonitor.swift */,
+				74B34D1FAC3C18BBD36EFB6F /* TerminalPanel.swift */,
+			);
+			path = Terminal;
+			sourceTree = "<group>";
+		};
+		FC0729136845353B6F171238 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				A5A2E1D5B55EA3B30912B6F1 /* Agent */,
+				04A1B2C3D4E5F67890AB1238 /* Dashboard */,
+				DF93DE5C8CF7545DD016266E /* MenuBar */,
+				6F665E24456A7BD81C842727 /* Repositories */,
+				FDAD84C82F7676C07536A2E3 /* Settings */,
+				F093A1BDE28591D6F5DBE414 /* Terminal */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		04A1B2C3D4E5F67890AB1238 /* Dashboard */ = {
+			isa = PBXGroup;
+			children = (
+				04A1B2C3D4E5F67890AB1237 /* SessionDashboardView.swift */,
+			);
+			path = Dashboard;
+			sourceTree = "<group>";
+		};
+		FDAD84C82F7676C07536A2E3 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				CB8D6C2B0E701C4D4F15ECA1 /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10C94082321A3FB4C118CF7 /* PromptConduitTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 16EDD8681AA3B02EF824C3CE /* Build configuration list for PBXNativeTarget "PromptConduitTests" */;
+			buildPhases = (
+				B7A3D5E25A6531A9CCD4CBCB /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				59603542608A0F7B3552F714 /* PBXTargetDependency */,
+			);
+			name = PromptConduitTests;
+			packageProductDependencies = (
+			);
+			productName = PromptConduitTests;
+			productReference = 27F828590204EAE03E2E2015 /* PromptConduitTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		BC40E0560993AA282F1F3C2A /* PromptConduit */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2648D30C53CDE92D3C9FE1BA /* Build configuration list for PBXNativeTarget "PromptConduit" */;
+			buildPhases = (
+				A9EAFA0FD25E37056046C255 /* Sources */,
+				9923DE67B3DFCCDA7C8BE780 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PromptConduit;
+			packageProductDependencies = (
+				C125F2C09DFC98518FB1F810 /* SwiftTerm */,
+			);
+			productName = PromptConduit;
+			productReference = 05CF87CE2D41BCD266905EE2 /* PromptConduit.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		052EC7933CC9CC6254E6A835 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					A10C94082321A3FB4C118CF7 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					BC40E0560993AA282F1F3C2A = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 0544C230EEBD901955613819 /* Build configuration list for PBXProject "PromptConduit" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 345526770498E5DA59841573;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CD27ABB5B0E4CFB7764022E7 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BC40E0560993AA282F1F3C2A /* PromptConduit */,
+				A10C94082321A3FB4C118CF7 /* PromptConduitTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A9EAFA0FD25E37056046C255 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3FDA0527E6DC3B49235BAF19 /* AgentManager.swift in Sources */,
+				4C476ED1B10EA7A23CE15563 /* AgentPanelController.swift in Sources */,
+				0BDDBF15F28978DB05BAD5FF /* AgentSession.swift in Sources */,
+				AEAD4D337FFE673693D7BB03 /* AppDelegate.swift in Sources */,
+				04A1B2C3D4E5F67890AB1234 /* ClaudeSessionDiscovery.swift in Sources */,
+				04A1B2C3D4E5F67890AB1236 /* SessionDashboardView.swift in Sources */,
+				6876A4389CB36B7EB4A5FFC9 /* EmbeddedTerminalView.swift in Sources */,
+				654A058ADE1EB01CF328540F /* GitService.swift in Sources */,
+				DC41C98C2275222F75537DDF /* GridLayout.swift in Sources */,
+				3BC05FE3EE9C5965A5F3DFC0 /* HookNotificationService.swift in Sources */,
+				80BAF8DA26A5BEEA12EE9459 /* ImageAttachmentService.swift in Sources */,
+				E50C81ED421F4254311B412C /* MenuBarController.swift in Sources */,
+				3EEA1D2DFDEC59EFE390A70B /* MonitoredTerminalView.swift in Sources */,
+				42161C96A16075FF7ECFCA00 /* MultiSessionGroup.swift in Sources */,
+				22B846A8C1C72A58560F1ACC /* MultiTerminalGridView.swift in Sources */,
+				303D5CB5163D9DEAB1338DEA /* NotificationService.swift in Sources */,
+				F1AD359EBC54ED462C348466 /* OutputParser.swift in Sources */,
+				05A3AECF2D14572CFFD37CE1 /* PTYSession.swift in Sources */,
+				A2742FBCF423780F362835BD /* ProcessDetectionService.swift in Sources */,
+				916E014FC116CDF3596EA407 /* PromptConduitApp.swift in Sources */,
+				8851834F88CBBAD7601FA1EA /* RepositoriesView.swift in Sources */,
+				61462559AA7E7FA28451DE41 /* RepositoryTemplate.swift in Sources */,
+				4626CA9A8C2A3CEBE88B7F99 /* SessionHistory.swift in Sources */,
+				EC1BEAFC018797D42BD93309 /* SessionLauncherView.swift in Sources */,
+				DB6E622451AD0A224C2DBAC2 /* SettingsService.swift in Sources */,
+				3871A6B448C1D5DCC7CD8B1D /* SettingsView.swift in Sources */,
+				D77341296B4C490111B91889 /* SlashCommandsService.swift in Sources */,
+				DF1D90BB5C76C65461386DD5 /* TerminalCellView.swift in Sources */,
+				04ED0B71263511058262BE8A /* TerminalOutputMonitor.swift in Sources */,
+				9B6AE17CD734E992550780FC /* TerminalPanel.swift in Sources */,
+				09E21C20031C6E2DDE1BEFCC /* TerminalSessionManager.swift in Sources */,
+				04B1C2D3E4F5A67890BC2344 /* TranscriptIndexDatabase.swift in Sources */,
+				04B1C2D3E4F5A67890BC2346 /* TranscriptIndexService.swift in Sources */,
+				04B1C2D3E4F5A67890BC2340 /* TranscriptParser.swift in Sources */,
+				04B1C2D3E4F5A67890BC2342 /* EmbeddingService.swift in Sources */,
+				EF9C2CA3341B3B8EFB2F6190 /* TranscriptView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B7A3D5E25A6531A9CCD4CBCB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				04A1B2C3D4E5F67890AB123A /* ClaudeSessionDiscoveryTests.swift in Sources */,
+				04B1C2D3E4F5A67890BC234A /* EmbeddingServiceTests.swift in Sources */,
+				AFD03EFA8FFF1D5F86A5B2D4 /* OutputParserTests.swift in Sources */,
+				BEA9671906B7E73606AF25A9 /* PTYSessionTests.swift in Sources */,
+				FC7674AC55E02D109EF50068 /* TerminalOutputMonitorTests.swift in Sources */,
+				04B1C2D3E4F5A67890BC2348 /* TranscriptParserTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		59603542608A0F7B3552F714 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BC40E0560993AA282F1F3C2A /* PromptConduit */;
+			targetProxy = AFB83B7777417931362B108A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		080E926EB9CA9C967251C689 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = PromptConduit;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		0B6FF561278AD2AF1DE450EC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = PromptConduit/Resources/PromptConduit.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = PromptConduit/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = com.promptconduit.PromptConduit;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		289DCF72822E273EFF9C3009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.promptconduit.PromptConduitTests;
+				PRODUCT_MODULE_NAME = PromptConduitTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PromptConduit.app/Contents/MacOS/PromptConduit";
+			};
+			name = Debug;
+		};
+		8673E7287C204FEC508A72FD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.promptconduit.PromptConduitTests;
+				PRODUCT_MODULE_NAME = PromptConduitTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PromptConduit.app/Contents/MacOS/PromptConduit";
+			};
+			name = Release;
+		};
+		9FEC6E57BC9564683C87E259 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = PromptConduit/Resources/PromptConduit.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = PromptConduit/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = com.promptconduit.PromptConduit;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		EC4D94BF4C72C776C41AD263 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = PromptConduit;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0544C230EEBD901955613819 /* Build configuration list for PBXProject "PromptConduit" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				080E926EB9CA9C967251C689 /* Debug */,
+				EC4D94BF4C72C776C41AD263 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		16EDD8681AA3B02EF824C3CE /* Build configuration list for PBXNativeTarget "PromptConduitTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				289DCF72822E273EFF9C3009 /* Debug */,
+				8673E7287C204FEC508A72FD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		2648D30C53CDE92D3C9FE1BA /* Build configuration list for PBXNativeTarget "PromptConduit" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0B6FF561278AD2AF1DE450EC /* Debug */,
+				9FEC6E57BC9564683C87E259 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CD27ABB5B0E4CFB7764022E7 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = exactVersion;
+				version = 1.5.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C125F2C09DFC98518FB1F810 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CD27ABB5B0E4CFB7764022E7 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 052EC7933CC9CC6254E6A835 /* Project object */;
+}
