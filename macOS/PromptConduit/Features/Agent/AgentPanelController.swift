@@ -17,6 +17,9 @@ class AgentPanelController {
     /// Panel for browsing repositories
     private var repositoriesPanel: NSPanel?
 
+    /// Panel for sessions dashboard
+    private var sessionsDashboardPanel: NSPanel?
+
     /// Counter for cascading window positions
     private var windowOffset: Int = 0
 
@@ -179,6 +182,45 @@ class AgentPanelController {
         NSApp.activate(ignoringOtherApps: true)
 
         repositoriesPanel = panel
+    }
+
+    /// Shows the sessions dashboard panel
+    func showSessionsDashboardPanel() {
+        // Close existing dashboard panel if open
+        sessionsDashboardPanel?.close()
+
+        let panel = createPanel()
+        panel.title = "Claude Code Sessions"
+
+        let view = SessionDashboardView(
+            onResumeSession: { [weak self, weak panel] session in
+                // Close dashboard and launch Claude Code with resume
+                panel?.close()
+                self?.resumeClaudeCodeSession(session)
+            },
+            onClose: { [weak panel] in
+                panel?.close()
+            }
+        )
+        panel.contentView = NSHostingView(rootView: view)
+
+        // Make the panel larger for the dashboard layout
+        panel.setContentSize(NSSize(width: 1000, height: 700))
+
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        sessionsDashboardPanel = panel
+    }
+
+    /// Resume a Claude Code session by launching claude with --resume flag
+    private func resumeClaudeCodeSession(_ session: DiscoveredSession) {
+        // Launch Claude Code in terminal with --resume and --cwd flags
+        launchTerminal(
+            in: session.repoPath,
+            initialPrompt: nil,
+            additionalArguments: ["--resume", session.id]
+        )
     }
 
     /// Shows a new agent creation window with a pre-selected repository
@@ -347,7 +389,7 @@ class AgentPanelController {
     }
 
     /// Launches an embedded terminal with Claude Code
-    private func launchTerminal(in directory: String, initialPrompt: String? = nil) {
+    private func launchTerminal(in directory: String, initialPrompt: String? = nil, additionalArguments: [String] = []) {
         let panel = createTerminalPanel()
         let repoName = URL(fileURLWithPath: directory).lastPathComponent
         panel.title = "Claude Code - \(repoName)"
@@ -368,6 +410,7 @@ class AgentPanelController {
             repoName: repoName,
             workingDirectory: directory,
             initialPrompt: initialPrompt,
+            additionalArguments: additionalArguments,
             onClose: { [weak panel] in
                 // Terminate session and clean up
                 TerminalSessionManager.shared.terminateSession(terminalId)

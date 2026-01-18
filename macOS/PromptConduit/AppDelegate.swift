@@ -92,6 +92,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         reposItem.target = self
         menu.addItem(reposItem)
 
+        let dashboardItem = NSMenuItem(title: "Sessions Dashboard...", action: #selector(showSessionsDashboard), keyEquivalent: "d")
+        dashboardItem.keyEquivalentModifierMask = [.command, .shift]
+        dashboardItem.target = self
+        menu.addItem(dashboardItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Hide/Show All Agents
@@ -380,6 +385,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             agentPanelController = AgentPanelController()
         }
         agentPanelController?.showRepositoriesPanel()
+    }
+
+    @objc private func showSessionsDashboard() {
+        if agentPanelController == nil {
+            agentPanelController = AgentPanelController()
+        }
+        agentPanelController?.showSessionsDashboardPanel()
     }
 
     @objc private func toggleAgentsVisibility() {
