@@ -31,19 +31,23 @@ enum DashboardSearchMode: String, CaseIterable {
     case sessions = "Sessions"
     case semantic = "Semantic"
     case patterns = "Patterns"
+    case skills = "Skills"
 }
 
 struct SessionDashboardView: View {
     @StateObject private var discovery = ClaudeSessionDiscovery.shared
     @StateObject private var indexService = TranscriptIndexService.shared
     @StateObject private var patternService = PatternDetectionService.shared
+    @StateObject private var commandsService = SlashCommandsService.shared
     @State private var selectedSession: DiscoveredSession?
     @State private var searchText: String = ""
     @State private var searchMode: DashboardSearchMode = .sessions
     @State private var selectedSearchResult: TranscriptSearchResult?
     @State private var selectedPattern: DetectedPattern?
+    @State private var selectedSkill: SlashCommand?
     @State private var expandedPatternId: UUID?
     @State private var showSaveSkillSheet = false
+    @State private var showDeleteSkillConfirmation = false
     @State private var savedSkillPath: String?
 
     let onResumeSession: (DiscoveredSession) -> Void
@@ -81,8 +85,10 @@ struct SessionDashboardView: View {
                 sessionSidebar
                     .frame(minWidth: 280, maxWidth: 400)
 
-                // Right panel - Session detail, search result detail, or pattern detail
-                if let pattern = selectedPattern {
+                // Right panel - Session detail, search result detail, pattern detail, or skill detail
+                if let skill = selectedSkill {
+                    skillDetail(skill)
+                } else if let pattern = selectedPattern {
                     patternDetail(pattern)
                 } else if let result = selectedSearchResult {
                     searchResultDetail(result)
@@ -217,6 +223,8 @@ struct SessionDashboardView: View {
                 semanticSearchContent
             case .patterns:
                 patternsContent
+            case .skills:
+                skillsContent
             }
 
             // Last refresh indicator
@@ -243,10 +251,16 @@ struct SessionDashboardView: View {
             selectedSession = nil
             selectedSearchResult = nil
             selectedPattern = nil
+            selectedSkill = nil
 
             // Start pattern detection when switching to patterns mode
             if newMode == .patterns && patternService.patterns.isEmpty && !patternService.isAnalyzing {
                 patternService.detectPatterns()
+            }
+
+            // Reload skills when switching to skills mode
+            if newMode == .skills {
+                commandsService.reload()
             }
         }
     }
@@ -486,6 +500,342 @@ struct SessionDashboardView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Skills Content
+
+    private var filteredSkills: [SlashCommand] {
+        if searchText.isEmpty {
+            return commandsService.commands
+        }
+        return commandsService.commands.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText) ||
+            ($0.description?.localizedCaseInsensitiveContains(searchText) ?? false)
+        }
+    }
+
+    private var skillsContent: some View {
+        Group {
+            if commandsService.isLoading {
+                // Loading
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(1.5)
+
+                    Text("Loading skills...")
+                        .font(.system(size: 14))
+                        .foregroundColor(DashboardTokens.textSecondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if commandsService.commands.isEmpty {
+                // No skills found
+                VStack(spacing: 12) {
+                    Image(systemName: "command.square")
+                        .font(.system(size: 32))
+                        .foregroundColor(DashboardTokens.textMuted)
+
+                    Text("No Skills Found")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(DashboardTokens.textPrimary)
+
+                    Text("Skills are slash commands stored in\n~/.claude/commands/ or [project]/.claude/commands/")
+                        .font(.system(size: 12))
+                        .foregroundColor(DashboardTokens.textMuted)
+                        .multilineTextAlignment(.center)
+
+                    Button(action: { commandsService.reload() }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Refresh")
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(DashboardTokens.accentCyan.opacity(0.2))
+                        .foregroundColor(DashboardTokens.accentCyan)
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 8)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // Skills list
+                VStack(spacing: 8) {
+                    // Header with count and refresh
+                    HStack {
+                        Text("\(commandsService.commands.count) skills")
+                            .font(.system(size: 11))
+                            .foregroundColor(DashboardTokens.textMuted)
+
+                        Spacer()
+
+                        Button(action: { commandsService.reload() }) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 11))
+                                .foregroundColor(DashboardTokens.accentCyan)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Refresh skills")
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
+
+                    ScrollView {
+                        LazyVStack(spacing: 4) {
+                            // Global skills section
+                            if !commandsService.globalSkills.isEmpty {
+                                SkillSectionHeader(title: "Global Skills", count: filteredSkills.filter { $0.location == .global }.count, isProject: false)
+                                ForEach(filteredSkills.filter { $0.location == .global }) { skill in
+                                    SkillRow(
+                                        skill: skill,
+                                        isSelected: selectedSkill?.id == skill.id,
+                                        onSelect: { selectSkill(skill) }
+                                    )
+                                }
+                            }
+
+                            // Project skills grouped by repo
+                            ForEach(commandsService.sortedProjectPaths, id: \.self) { projectPath in
+                                let skills = commandsService.skillsByProject[projectPath] ?? []
+                                let filteredProjectSkills = skills.filter { filteredSkills.contains($0) }
+                                if !filteredProjectSkills.isEmpty {
+                                    let repoName = URL(fileURLWithPath: projectPath).lastPathComponent
+                                    SkillSectionHeader(title: repoName, count: filteredProjectSkills.count, isProject: true)
+                                    ForEach(filteredProjectSkills) { skill in
+                                        SkillRow(
+                                            skill: skill,
+                                            isSelected: selectedSkill?.id == skill.id,
+                                            onSelect: { selectSkill(skill) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        .padding(8)
+                    }
+                }
+            }
+        }
+    }
+
+    private func selectSkill(_ skill: SlashCommand) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            selectedSkill = skill
+            selectedSession = nil
+            selectedSearchResult = nil
+            selectedPattern = nil
+        }
+    }
+
+    // MARK: - Skill Detail
+
+    private func skillDetail(_ skill: SlashCommand) -> some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "command.square.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(DashboardTokens.accentCyan)
+
+                        Text("/\(skill.name)")
+                            .font(.system(size: 18, weight: .bold, design: .monospaced))
+                            .foregroundColor(DashboardTokens.textPrimary)
+
+                        // Location badge
+                        Text(skill.location.rawValue)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(skill.location == .global ? DashboardTokens.accentPurple : DashboardTokens.accentCyan)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                (skill.location == .global ? DashboardTokens.accentPurple : DashboardTokens.accentCyan)
+                                    .opacity(0.15)
+                            )
+                            .cornerRadius(6)
+                    }
+
+                    if let description = skill.description {
+                        Text(description)
+                            .font(.system(size: 13))
+                            .foregroundColor(DashboardTokens.textSecondary)
+                    }
+                }
+
+                Spacer()
+
+                // Action buttons
+                HStack(spacing: 8) {
+                    Button(action: { openSkillInFinder(skill) }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "folder")
+                            Text("Reveal")
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(DashboardTokens.backgroundCard)
+                        .foregroundColor(DashboardTokens.textPrimary)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: { editSkill(skill) }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "pencil")
+                            Text("Edit")
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(DashboardTokens.accentCyan)
+                        .foregroundColor(DashboardTokens.backgroundPrimary)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: { showDeleteSkillConfirmation = true }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12))
+                            .padding(8)
+                            .background(DashboardTokens.statusError.opacity(0.15))
+                            .foregroundColor(DashboardTokens.statusError)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+            .background(DashboardTokens.backgroundSecondary)
+
+            Divider()
+                .background(DashboardTokens.borderColor)
+
+            // Content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Metadata section
+                    if skill.allowedTools != nil || skill.argumentHint != nil {
+                        skillMetadataSection(skill)
+                    }
+
+                    // Prompt content section
+                    skillPromptSection(skill)
+
+                    // File location section
+                    skillFileSection(skill)
+                }
+                .padding(20)
+            }
+        }
+        .background(DashboardTokens.backgroundPrimary)
+        .alert("Delete Skill", isPresented: $showDeleteSkillConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                deleteSkill(skill)
+            }
+        } message: {
+            Text("Are you sure you want to delete /\(skill.name)? This action cannot be undone.")
+        }
+    }
+
+    private func skillMetadataSection(_ skill: SlashCommand) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Metadata")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(DashboardTokens.textSecondary)
+
+            HStack(spacing: 24) {
+                if let allowedTools = skill.allowedTools {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Allowed Tools")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(DashboardTokens.textMuted)
+                        Text(allowedTools)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(DashboardTokens.textSecondary)
+                    }
+                }
+
+                if let argumentHint = skill.argumentHint {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Argument")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(DashboardTokens.textMuted)
+                        Text(argumentHint)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(DashboardTokens.textSecondary)
+                    }
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DashboardTokens.backgroundCard)
+            .cornerRadius(10)
+        }
+    }
+
+    private func skillPromptSection(_ skill: SlashCommand) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Prompt Content")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(DashboardTokens.textSecondary)
+
+            ScrollView {
+                Text(skill.prompt)
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundColor(DashboardTokens.textPrimary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 300)
+            .padding(16)
+            .background(DashboardTokens.backgroundCard)
+            .cornerRadius(10)
+        }
+    }
+
+    private func skillFileSection(_ skill: SlashCommand) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("File Location")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(DashboardTokens.textSecondary)
+
+            HStack {
+                Image(systemName: "doc.text")
+                    .foregroundColor(DashboardTokens.textMuted)
+                Text(skill.displayPath)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(DashboardTokens.textSecondary)
+                Spacer()
+                Button("Copy Path") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(skill.filePath, forType: .string)
+                }
+                .font(.system(size: 11))
+                .foregroundColor(DashboardTokens.accentCyan)
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+            .background(DashboardTokens.backgroundCard)
+            .cornerRadius(8)
+        }
+    }
+
+    private func openSkillInFinder(_ skill: SlashCommand) {
+        NSWorkspace.shared.selectFile(skill.filePath, inFileViewerRootedAtPath: "")
+    }
+
+    private func editSkill(_ skill: SlashCommand) {
+        NSWorkspace.shared.open(URL(fileURLWithPath: skill.filePath))
+    }
+
+    private func deleteSkill(_ skill: SlashCommand) {
+        commandsService.deleteCommand(skill)
+        selectedSkill = nil
     }
 
     // MARK: - Pattern Detail
@@ -1331,5 +1681,93 @@ struct PatternRow: View {
         } else {
             return DashboardTokens.textMuted
         }
+    }
+}
+
+// MARK: - Skill Section Header
+
+struct SkillSectionHeader: View {
+    let title: String
+    let count: Int
+    var isProject: Bool = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: isProject ? "folder.fill" : "globe")
+                .font(.system(size: 10))
+                .foregroundColor(DashboardTokens.textMuted)
+
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(DashboardTokens.textSecondary)
+
+            Text("(\(count))")
+                .font(.system(size: 10))
+                .foregroundColor(DashboardTokens.textMuted)
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+    }
+}
+
+// MARK: - Skill Row
+
+struct SkillRow: View {
+    let skill: SlashCommand
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 10) {
+                // Skill icon
+                Image(systemName: "command.square.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(DashboardTokens.accentCyan)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("/\(skill.name)")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundColor(isSelected ? DashboardTokens.textPrimary : DashboardTokens.textSecondary)
+
+                        // Location badge
+                        Text(skill.location.rawValue)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(skill.location == .global ? DashboardTokens.accentPurple : DashboardTokens.accentCyan)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                (skill.location == .global ? DashboardTokens.accentPurple : DashboardTokens.accentCyan)
+                                    .opacity(0.15)
+                            )
+                            .cornerRadius(4)
+                    }
+
+                    if let description = skill.description {
+                        Text(description)
+                            .font(.system(size: 11))
+                            .foregroundColor(DashboardTokens.textMuted)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                isSelected ? DashboardTokens.accentCyan.opacity(0.15) :
+                    (isHovered ? DashboardTokens.backgroundCardHover : Color.clear)
+            )
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
