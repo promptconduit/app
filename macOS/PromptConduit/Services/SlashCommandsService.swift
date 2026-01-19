@@ -18,7 +18,8 @@ struct SlashCommand: Identifiable, Hashable {
     let filePath: String
 
     init(name: String, description: String?, allowedTools: String?, argumentHint: String?, prompt: String, filePath: String) {
-        self.id = name
+        // Use filePath as ID to ensure uniqueness across projects with same skill name
+        self.id = filePath
         self.name = name
         self.description = description
         self.allowedTools = allowedTools
