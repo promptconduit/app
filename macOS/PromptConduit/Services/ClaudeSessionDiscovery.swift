@@ -250,7 +250,7 @@ class ClaudeSessionDiscovery: ObservableObject {
         }
 
         let sessionId = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-        let (title, messageCount) = extractSessionMetadata(path)
+        let (title, messageCount) = extractSessionMetadata(path, sessionId: sessionId)
 
         return DiscoveredSession(
             id: sessionId,
@@ -264,7 +264,7 @@ class ClaudeSessionDiscovery: ObservableObject {
     }
 
     /// Extracts title and message count from a session file
-    private func extractSessionMetadata(_ path: String) -> (title: String?, messageCount: Int) {
+    private func extractSessionMetadata(_ path: String, sessionId: String) -> (title: String?, messageCount: Int) {
         guard let handle = FileHandle(forReadingAtPath: path) else {
             return (nil, 0)
         }
@@ -272,6 +272,7 @@ class ClaudeSessionDiscovery: ObservableObject {
 
         var title: String?
         var messageCount = 0
+        var firstUserPrompt: String?
 
         // Read file line by line (simplified - reads whole file)
         guard let data = try? handle.readToEnd(),
@@ -293,7 +294,7 @@ class ClaudeSessionDiscovery: ObservableObject {
                 messageCount += 1
             }
 
-            // Get title from summary
+            // Get title from summary (highest priority)
             if type == "summary" {
                 if let leafTitle = json["leafTitle"] as? String, !leafTitle.isEmpty {
                     title = leafTitle
@@ -301,9 +302,54 @@ class ClaudeSessionDiscovery: ObservableObject {
                     title = summary.count > 60 ? String(summary.prefix(57)) + "..." : summary
                 }
             }
+
+            // Capture first user prompt for fallback title generation
+            if type == "user" && firstUserPrompt == nil {
+                firstUserPrompt = extractPromptText(from: json)
+            }
+        }
+
+        // If no title from summary, try to get or generate one
+        if title == nil {
+            // Check cache first
+            if let cachedTitle = SessionTitleCache.shared.getTitle(sessionId: sessionId) {
+                title = cachedTitle
+            }
+            // Generate from first prompt if available
+            else if let prompt = firstUserPrompt, !prompt.isEmpty {
+                let generatedTitle = SessionTitleCache.generateTitle(from: prompt)
+                SessionTitleCache.shared.setTitle(sessionId: sessionId, title: generatedTitle)
+                title = generatedTitle
+            }
         }
 
         return (title, messageCount)
+    }
+
+    /// Extracts text content from a user message JSON
+    private func extractPromptText(from json: [String: Any]) -> String? {
+        guard let message = json["message"] as? [String: Any] else {
+            return nil
+        }
+
+        // Handle content as string
+        if let content = message["content"] as? String {
+            return content
+        }
+
+        // Handle content as array of blocks
+        if let contentArray = message["content"] as? [[String: Any]] {
+            var textParts: [String] = []
+            for block in contentArray {
+                if let blockType = block["type"] as? String, blockType == "text",
+                   let text = block["text"] as? String {
+                    textParts.append(text)
+                }
+            }
+            return textParts.joined(separator: " ")
+        }
+
+        return nil
     }
 
     /// Determines session status based on file modification time

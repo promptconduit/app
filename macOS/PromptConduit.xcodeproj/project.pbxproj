@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		04A1B2C3D4E5F67890AB1234 /* ClaudeSessionDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A1B2C3D4E5F67890AB1235 /* ClaudeSessionDiscovery.swift */; };
+		04F1G2H3I4J5K67890FG2381 /* SessionTitleCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04F1G2H3I4J5K67890FG2380 /* SessionTitleCache.swift */; };
 		04A1B2C3D4E5F67890AB1236 /* SessionDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A1B2C3D4E5F67890AB1237 /* SessionDashboardView.swift */; };
 		04A1B2C3D4E5F67890AB123A /* ClaudeSessionDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A1B2C3D4E5F67890AB1239 /* ClaudeSessionDiscoveryTests.swift */; };
 		04B1C2D3E4F5A67890BC2340 /* TranscriptParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B1C2D3E4F5A67890BC2341 /* TranscriptParser.swift */; };
@@ -110,6 +111,7 @@
 		74B34D1FAC3C18BBD36EFB6F /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanel.swift; sourceTree = "<group>"; };
 		7B2E2F8E424E5429A197D7E2 /* TerminalOutputMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOutputMonitorTests.swift; sourceTree = "<group>"; };
 		8AFDA1DAFE542BFD87056608 /* SettingsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsService.swift; sourceTree = "<group>"; };
+		04F1G2H3I4J5K67890FG2380 /* SessionTitleCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTitleCache.swift; sourceTree = "<group>"; };
 		8EE5B376EB05B0E9B6E7AE42 /* PTYSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYSessionTests.swift; sourceTree = "<group>"; };
 		93379B0E9848F747EB6489FF /* SessionHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistory.swift; sourceTree = "<group>"; };
 		9353377F0E90986D3B597935 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -197,6 +199,7 @@
 				04C1D2E3F4A5B67890CD2351 /* PatternDetectionService.swift */,
 				04D1E2F3G4H5I67890DE2361 /* PatternSkillService.swift */,
 				28E249FE84141C631CAA2DF2 /* ProcessDetectionService.swift */,
+				04F1G2H3I4J5K67890FG2380 /* SessionTitleCache.swift */,
 				8AFDA1DAFE542BFD87056608 /* SettingsService.swift */,
 				AF8BDAA52F7C52621E8DA50B /* SlashCommandsService.swift */,
 				199C59B522537F6E55F7C7FC /* TerminalSessionManager.swift */,
@@ -427,6 +430,7 @@
 				61462559AA7E7FA28451DE41 /* RepositoryTemplate.swift in Sources */,
 				4626CA9A8C2A3CEBE88B7F99 /* SessionHistory.swift in Sources */,
 				EC1BEAFC018797D42BD93309 /* SessionLauncherView.swift in Sources */,
+				04F1G2H3I4J5K67890FG2381 /* SessionTitleCache.swift in Sources */,
 				DB6E622451AD0A224C2DBAC2 /* SettingsService.swift in Sources */,
 				3871A6B448C1D5DCC7CD8B1D /* SettingsView.swift in Sources */,
 				D77341296B4C490111B91889 /* SlashCommandsService.swift in Sources */,
