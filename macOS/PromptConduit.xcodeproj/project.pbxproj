@@ -21,6 +21,7 @@
 		04D1E2F3G4H5I67890DE2360 /* PatternSkillService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04D1E2F3G4H5I67890DE2361 /* PatternSkillService.swift */; };
 		04D1E2F3G4H5I67890DE2362 /* SaveSkillSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04D1E2F3G4H5I67890DE2363 /* SaveSkillSheet.swift */; };
 		04D1E2F3G4H5I67890DE2364 /* PatternSkillServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04D1E2F3G4H5I67890DE2365 /* PatternSkillServiceTests.swift */; };
+		04E1F2G3H4I5J67890EF2370 /* SlashCommandsServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04E1F2G3H4I5J67890EF2371 /* SlashCommandsServiceTests.swift */; };
 		04ED0B71263511058262BE8A /* TerminalOutputMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39D0C878325B21553F2FA55A /* TerminalOutputMonitor.swift */; };
 		05A3AECF2D14572CFFD37CE1 /* PTYSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E0E605902CC4527F31B7CC2 /* PTYSession.swift */; };
 		09E21C20031C6E2DDE1BEFCC /* TerminalSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 199C59B522537F6E55F7C7FC /* TerminalSessionManager.swift */; };
@@ -83,6 +84,7 @@
 		04D1E2F3G4H5I67890DE2361 /* PatternSkillService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternSkillService.swift; sourceTree = "<group>"; };
 		04D1E2F3G4H5I67890DE2363 /* SaveSkillSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveSkillSheet.swift; sourceTree = "<group>"; };
 		04D1E2F3G4H5I67890DE2365 /* PatternSkillServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternSkillServiceTests.swift; sourceTree = "<group>"; };
+		04E1F2G3H4I5J67890EF2371 /* SlashCommandsServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandsServiceTests.swift; sourceTree = "<group>"; };
 		05CF87CE2D41BCD266905EE2 /* PromptConduit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PromptConduit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0D34EAE5DAAEEF85C90498E8 /* PromptConduitApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptConduitApp.swift; sourceTree = "<group>"; };
 		0E0E605902CC4527F31B7CC2 /* PTYSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYSession.swift; sourceTree = "<group>"; };
@@ -233,6 +235,7 @@
 				04C1D2E3F4A5B67890CD2353 /* PatternDetectionServiceTests.swift */,
 				04D1E2F3G4H5I67890DE2365 /* PatternSkillServiceTests.swift */,
 				8EE5B376EB05B0E9B6E7AE42 /* PTYSessionTests.swift */,
+				04E1F2G3H4I5J67890EF2371 /* SlashCommandsServiceTests.swift */,
 				7B2E2F8E424E5429A197D7E2 /* TerminalOutputMonitorTests.swift */,
 				04B1C2D3E4F5A67890BC2349 /* TranscriptParserTests.swift */,
 			);
@@ -449,6 +452,7 @@
 				04C1D2E3F4A5B67890CD2352 /* PatternDetectionServiceTests.swift in Sources */,
 				04D1E2F3G4H5I67890DE2364 /* PatternSkillServiceTests.swift in Sources */,
 				BEA9671906B7E73606AF25A9 /* PTYSessionTests.swift in Sources */,
+				04E1F2G3H4I5J67890EF2370 /* SlashCommandsServiceTests.swift in Sources */,
 				FC7674AC55E02D109EF50068 /* TerminalOutputMonitorTests.swift in Sources */,
 				04B1C2D3E4F5A67890BC2348 /* TranscriptParserTests.swift in Sources */,
 			);

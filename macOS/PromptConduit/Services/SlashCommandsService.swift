@@ -1,6 +1,12 @@
 import Foundation
 import Combine
 
+/// Where a skill is located
+enum SkillLocation: String {
+    case global = "Global"
+    case project = "Project"
+}
+
 /// Represents a Claude slash command
 struct SlashCommand: Identifiable, Hashable {
     let id: String
@@ -20,6 +26,39 @@ struct SlashCommand: Identifiable, Hashable {
         self.prompt = prompt
         self.filePath = filePath
     }
+
+    // MARK: - Location Properties
+
+    /// Whether this is a global or project-level skill
+    var location: SkillLocation {
+        let globalPath = SettingsService.claudeCommandsPath
+        if filePath.hasPrefix(globalPath) {
+            return .global
+        }
+        return .project
+    }
+
+    /// Display-friendly path (with ~ for home directory)
+    var displayPath: String {
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        return filePath.replacingOccurrences(of: homePath, with: "~")
+    }
+
+    /// Project path if this is a project-level skill
+    var projectPath: String? {
+        guard location == .project else { return nil }
+        // Extract repo path from: /path/to/repo/.claude/commands/skill.md
+        if let range = filePath.range(of: "/.claude/commands/") {
+            return String(filePath[..<range.lowerBound])
+        }
+        return nil
+    }
+
+    /// Project name (last component of project path)
+    var projectName: String? {
+        guard let path = projectPath else { return nil }
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
 }
 
 /// Service for managing Claude slash commands
@@ -32,6 +71,32 @@ class SlashCommandsService: ObservableObject {
 
     private init() {
         reload()
+    }
+
+    // MARK: - Filtered Accessors
+
+    /// Global skills only
+    var globalSkills: [SlashCommand] {
+        commands.filter { $0.location == .global }
+    }
+
+    /// Project skills only
+    var projectSkills: [SlashCommand] {
+        commands.filter { $0.location == .project }
+    }
+
+    /// Skills grouped by project path
+    var skillsByProject: [String: [SlashCommand]] {
+        Dictionary(grouping: projectSkills) { $0.projectPath ?? "Unknown" }
+    }
+
+    /// Sorted project paths for consistent display order
+    var sortedProjectPaths: [String] {
+        Array(skillsByProject.keys).sorted { path1, path2 in
+            let name1 = URL(fileURLWithPath: path1).lastPathComponent.lowercased()
+            let name2 = URL(fileURLWithPath: path2).lastPathComponent.lowercased()
+            return name1 < name2
+        }
     }
 
     // MARK: - Loading
@@ -53,11 +118,62 @@ class SlashCommandsService: ObservableObject {
     private func loadCommands() -> [SlashCommand] {
         var allCommands: [SlashCommand] = []
 
-        // Load from user-level commands
+        // Load from global commands (~/.claude/commands/)
         let userCommandsPath = SettingsService.claudeCommandsPath
         allCommands.append(contentsOf: loadCommandsFromDirectory(userCommandsPath))
 
+        // Load from project-level commands ([repo]/.claude/commands/)
+        let projectCommandsPaths = discoverProjectCommandPaths()
+        for projectPath in projectCommandsPaths {
+            allCommands.append(contentsOf: loadCommandsFromDirectory(projectPath))
+        }
+
         return allCommands.sorted { $0.name < $1.name }
+    }
+
+    /// Discovers all project-level .claude/commands/ directories from known repos
+    private func discoverProjectCommandPaths() -> [String] {
+        var paths: [String] = []
+        let fileManager = FileManager.default
+
+        // Scan ~/.claude/projects/ to find known repos
+        let projectsDir = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/projects")
+
+        guard let entries = try? fileManager.contentsOfDirectory(atPath: projectsDir.path) else {
+            return []
+        }
+
+        for entry in entries {
+            // Skip hidden files and non-directories
+            if entry.hasPrefix(".") { continue }
+
+            // Decode the project path
+            if let repoPath = decodeProjectPath(entry) {
+                let commandsPath = (repoPath as NSString).appendingPathComponent(".claude/commands")
+                if fileManager.fileExists(atPath: commandsPath) {
+                    paths.append(commandsPath)
+                }
+            }
+        }
+
+        return paths
+    }
+
+    /// Decodes the URL-encoded or dash-encoded project path
+    private func decodeProjectPath(_ encoded: String) -> String? {
+        // Handle URL-encoded paths (newer format)
+        if let decoded = encoded.removingPercentEncoding, decoded != encoded {
+            return decoded
+        }
+
+        // Handle dash-encoded paths (older format: -Users-name-project)
+        if encoded.hasPrefix("-") {
+            let decoded = "/" + encoded.dropFirst().replacingOccurrences(of: "-", with: "/")
+            return decoded
+        }
+
+        return nil
     }
 
     private func loadCommandsFromDirectory(_ path: String) -> [SlashCommand] {
