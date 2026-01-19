@@ -43,6 +43,8 @@ struct SessionDashboardView: View {
     @State private var selectedSearchResult: TranscriptSearchResult?
     @State private var selectedPattern: DetectedPattern?
     @State private var expandedPatternId: UUID?
+    @State private var showSaveSkillSheet = false
+    @State private var savedSkillPath: String?
 
     let onResumeSession: (DiscoveredSession) -> Void
     let onClose: () -> Void
@@ -97,6 +99,33 @@ struct SessionDashboardView: View {
         }
         .onDisappear {
             discovery.stopMonitoring()
+        }
+        .sheet(isPresented: $showSaveSkillSheet) {
+            if let pattern = selectedPattern {
+                SaveSkillSheet(
+                    pattern: pattern,
+                    isPresented: $showSaveSkillSheet,
+                    onSave: { path in
+                        savedSkillPath = path
+                    }
+                )
+            }
+        }
+        .alert("Skill Saved", isPresented: .init(
+            get: { savedSkillPath != nil },
+            set: { if !$0 { savedSkillPath = nil } }
+        )) {
+            Button("OK") { savedSkillPath = nil }
+            Button("Open in Finder") {
+                if let path = savedSkillPath {
+                    NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
+                }
+                savedSkillPath = nil
+            }
+        } message: {
+            if let path = savedSkillPath {
+                Text("Skill saved to:\n\(path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))")
+            }
         }
     }
 
@@ -513,6 +542,24 @@ struct SessionDashboardView: View {
                 .padding(.vertical, 5)
                 .background(DashboardTokens.accentPurple.opacity(0.15))
                 .cornerRadius(6)
+
+                // Save as Skill button
+                Button(action: {
+                    showSaveSkillSheet = true
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.arrow.down")
+                        Text("Save as Skill")
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(DashboardTokens.accentCyan)
+                    .foregroundColor(DashboardTokens.backgroundPrimary)
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .help("Save this pattern as a Claude Code skill")
             }
             .padding(20)
             .background(DashboardTokens.backgroundSecondary)
