@@ -2,12 +2,16 @@ import Foundation
 import NaturalLanguage
 
 /// Service for generating text embeddings using Apple's NaturalLanguage framework
+/// Note: NLEmbedding is NOT thread-safe, so all embedding operations are serialized
 class EmbeddingService {
 
     /// Embedding dimension (NLEmbedding uses 512 dimensions)
     static let embeddingDimension = 512
 
     private let sentenceEmbedding: NLEmbedding?
+
+    /// Serial queue to ensure thread safety for NLEmbedding operations
+    private let embeddingQueue = DispatchQueue(label: "com.promptconduit.embedding")
 
     init() {
         self.sentenceEmbedding = NLEmbedding.sentenceEmbedding(for: .english)
@@ -23,6 +27,7 @@ class EmbeddingService {
     /// Generate a 512-dimensional embedding vector for the given text
     /// - Parameter text: The text to embed
     /// - Returns: Array of 512 Double values, or nil if embedding fails
+    /// - Note: This method is thread-safe and blocks until the embedding is computed
     func embed(_ text: String) -> [Double]? {
         guard let embedding = sentenceEmbedding else {
             return nil
@@ -31,12 +36,10 @@ class EmbeddingService {
         // NLEmbedding requires lowercase input
         let normalizedText = text.lowercased()
 
-        // Get the vector representation
-        guard let vector = embedding.vector(for: normalizedText) else {
-            return nil
+        // Serialize access to NLEmbedding to prevent crashes
+        return embeddingQueue.sync {
+            embedding.vector(for: normalizedText)
         }
-
-        return vector
     }
 
     /// Generate embeddings for multiple texts
