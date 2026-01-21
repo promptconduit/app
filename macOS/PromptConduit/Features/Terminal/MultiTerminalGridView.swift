@@ -22,12 +22,8 @@ struct MultiTerminalGridView: View {
     let onClose: () -> Void
 
     @ObservedObject private var terminalManager = TerminalSessionManager.shared
-    @ObservedObject private var hookService = HookNotificationService.shared
     @State private var focusedSessionId: UUID?
     @State private var sessionIds: [UUID] = []
-    @State private var terminalViews: [UUID: LocalProcessTerminalView] = [:]
-    @State private var promptSentToSessions: Set<UUID> = []  // Track which sessions received the prompt
-    @State private var repoPathToSessionId: [String: UUID] = [:]  // Map working directory to session ID
 
     // Deep link highlight state
     @State private var highlightedSessionId: UUID?
@@ -67,27 +63,10 @@ struct MultiTerminalGridView: View {
                                     terminalManager.markTerminated(sessionId)
                                 },
                                 onTerminalReady: { terminal in
-                                    terminalViews[sessionId] = terminal
+                                    // Store terminal view in the single source of truth
                                     terminalManager.updateTerminalView(sessionId, terminalView: terminal)
                                 },
-                                onClaudeReady: {
-                                    // Claude has shown its prompt - now safe to send initial prompt
-                                    print("[MultiTerminalGrid] onClaudeReady fired for session \(sessionId)")
-                                    print("[MultiTerminalGrid] terminalViews has \(terminalViews.count) entries")
-                                    if let terminal = terminalViews[sessionId] {
-                                        print("[MultiTerminalGrid] Found terminal view, sending prompt")
-                                        sendInitialPromptIfNeeded(to: sessionId, terminal: terminal)
-                                    } else {
-                                        print("[MultiTerminalGrid] ERROR: Terminal view not found for session!")
-                                        // Fallback: wait a bit and try again
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                            if let terminal = terminalViews[sessionId] {
-                                                print("[MultiTerminalGrid] Fallback: Found terminal view after delay")
-                                                sendInitialPromptIfNeeded(to: sessionId, terminal: terminal)
-                                            }
-                                        }
-                                    }
-                                }
+                                onClaudeReady: nil  // Prompt sending is now triggered by hook events via state observation
                             )
                             .frame(width: cellWidth, height: cellHeight)
                         }
@@ -98,10 +77,10 @@ struct MultiTerminalGridView: View {
         .background(GridTokens.backgroundPrimary)
         .onAppear {
             setupSessions()
-            setupHookListener()
+            // Ensure hook service is listening (TerminalSessionManager handles the events)
+            HookNotificationService.shared.startListening()
         }
         .onDisappear {
-            hookService.onSessionStart = nil  // Clean up callback
             // Clean up all sessions in this group when the view disappears
             terminalManager.terminateGroup(groupId)
         }
@@ -110,6 +89,14 @@ struct MultiTerminalGridView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .highlightTerminalSession)) { notification in
             handleHighlightNotification(notification)
+        }
+        // SINGLE SOURCE OF TRUTH: Observe sessions ready for prompt from the manager
+        .onReceive(terminalManager.$sessionsReadyForPrompt) { readySessions in
+            // Filter to only sessions in this group
+            let ourReadySessions = readySessions.filter { sessionIds.contains($0) }
+            for sessionId in ourReadySessions {
+                sendPromptToSession(sessionId)
+            }
         }
     }
 
@@ -132,18 +119,17 @@ struct MultiTerminalGridView: View {
             let sessionId = UUID()
             let repoName = URL(fileURLWithPath: repoPath).lastPathComponent
 
-            // Register with terminal manager
+            // Register with terminal manager (single source of truth)
+            // Include the pending prompt so the manager knows what to send when ready
             terminalManager.registerSession(
                 id: sessionId,
                 repoName: repoName,
                 workingDirectory: repoPath,
-                groupId: groupId
+                groupId: groupId,
+                pendingPrompt: initialPrompt
             )
 
             sessionIds.append(sessionId)
-
-            // Map repo path to session ID for hook matching
-            repoPathToSessionId[repoPath] = sessionId
         }
 
         // Focus the first session
@@ -152,56 +138,9 @@ struct MultiTerminalGridView: View {
         }
     }
 
-    /// Set up listener for CLI hook events
-    private func setupHookListener() {
-        print("[MultiTerminalGrid] setupHookListener called")
-        print("[MultiTerminalGrid] repoPathToSessionId: \(repoPathToSessionId)")
-
-        // Start the hook service if not already running
-        hookService.startListening()
-
-        // Listen for SessionStart events
-        hookService.onSessionStart = { [self] event in
-            print("[MultiTerminalGrid] Received SessionStart hook for: \(event.cwd)")
-            print("[MultiTerminalGrid] repoPathToSessionId keys: \(Array(repoPathToSessionId.keys))")
-            print("[MultiTerminalGrid] terminalViews count: \(terminalViews.count)")
-
-            // Find the session ID for this working directory
-            if let sessionId = repoPathToSessionId[event.cwd],
-               let terminal = terminalViews[sessionId] {
-                print("[MultiTerminalGrid] Found exact match, sending prompt")
-                sendInitialPromptIfNeeded(to: sessionId, terminal: terminal)
-            } else {
-                print("[MultiTerminalGrid] No exact match, trying suffix match...")
-                // Try matching by suffix (in case paths differ slightly)
-                var matched = false
-                for (path, sessionId) in repoPathToSessionId {
-                    let eventDirName = URL(fileURLWithPath: event.cwd).lastPathComponent
-                    let pathDirName = URL(fileURLWithPath: path).lastPathComponent
-                    print("[MultiTerminalGrid] Comparing: event='\(eventDirName)' vs path='\(pathDirName)'")
-
-                    if eventDirName == pathDirName {
-                        print("[MultiTerminalGrid] Directory name match found!")
-                        if let terminal = terminalViews[sessionId] {
-                            print("[MultiTerminalGrid] Terminal found, sending prompt")
-                            sendInitialPromptIfNeeded(to: sessionId, terminal: terminal)
-                            matched = true
-                        } else {
-                            print("[MultiTerminalGrid] Terminal NOT found for sessionId: \(sessionId)")
-                        }
-                        break
-                    }
-                }
-                if !matched {
-                    print("[MultiTerminalGrid] No match found for path: \(event.cwd)")
-                }
-            }
-        }
-    }
-
     private func focusTerminal(_ sessionId: UUID) {
-        // Make the terminal the first responder
-        if let terminal = terminalViews[sessionId] {
+        // Make the terminal the first responder (get terminal from manager)
+        if let terminal = terminalManager.getTerminalView(for: sessionId) {
             terminal.window?.makeFirstResponder(terminal)
         }
     }
@@ -248,31 +187,35 @@ struct MultiTerminalGridView: View {
         highlightedSessionId == sessionId && highlightOpacity > 0
     }
 
-    /// Sends the initial prompt to a terminal if one was provided and hasn't been sent yet
-    /// Called when Claude is ready (has shown its prompt)
-    private func sendInitialPromptIfNeeded(to sessionId: UUID, terminal: LocalProcessTerminalView) {
-        print("[MultiTerminalGrid] sendInitialPromptIfNeeded called for session \(sessionId)")
-        print("[MultiTerminalGrid] initialPrompt: \(initialPrompt ?? "nil")")
+    // MARK: - Prompt Sending (Triggered by State Change)
 
-        guard let prompt = initialPrompt, !prompt.isEmpty else {
-            print("[MultiTerminalGrid] No prompt to send (nil or empty)")
+    /// Sends a prompt to a session when the manager marks it as ready
+    /// Uses the single source of truth (TerminalSessionManager) for all data
+    private func sendPromptToSession(_ sessionId: UUID) {
+        print("[MultiTerminalGrid] sendPromptToSession called for session \(sessionId)")
+
+        // Get prompt and terminal from the single source of truth
+        guard let prompt = terminalManager.getPendingPrompt(for: sessionId) else {
+            print("[MultiTerminalGrid] No pending prompt for session")
             return
         }
-        guard !promptSentToSessions.contains(sessionId) else {
-            print("[MultiTerminalGrid] Prompt already sent to this session")
+        guard let terminal = terminalManager.getTerminalView(for: sessionId) else {
+            print("[MultiTerminalGrid] No terminal view for session - will retry on next state update")
             return
         }
-
-        // Mark as sent first to avoid double-sending
-        promptSentToSessions.insert(sessionId)
-        print("[MultiTerminalGrid] Sending prompt: \(prompt.prefix(50))...")
 
         // Trim whitespace/newlines from prompt before sending
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else {
             print("[MultiTerminalGrid] Prompt is empty after trimming, skipping")
+            terminalManager.markPromptSent(sessionId)
             return
         }
+
+        print("[MultiTerminalGrid] Sending prompt: \(trimmedPrompt.prefix(50))...")
+
+        // Mark as sent BEFORE sending to prevent re-entry from state updates
+        terminalManager.markPromptSent(sessionId)
 
         // Small delay to ensure Claude is fully ready
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

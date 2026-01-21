@@ -45,9 +45,10 @@ class MonitoredTerminalView: LocalProcessTerminalView {
     /// Patterns that indicate Claude is ready for input
     /// Claude Code shows "Try" suggestions when ready for input
     private let readyPatterns = [
-        "> Try \"",     // Claude Code suggestion prompt (main indicator it's ready)
+        "Try \"",      // Claude Code suggestion prompt (main indicator it's ready)
+        "❯ Try",       // With Unicode prompt character
+        "> Try",       // With ASCII prompt character
         "❯",           // Claude's primary prompt (terminal mode)
-        "❯ ",          // Prompt with space
     ]
 
     // MARK: - Selection State
@@ -551,15 +552,14 @@ class MonitoredTerminalView: LocalProcessTerminalView {
         // Debug: check the last 200 chars of clean output
         let tail = String(cleanOutput.suffix(200))
         if tail.contains("Try") {
-            print("[MonitoredTerminal] FOUND 'Try' in tail: \(tail.prefix(100))")
+            terminalLog("[READY] FOUND 'Try' in output tail")
         }
 
         for pattern in readyPatterns {
             if cleanOutput.contains(pattern) {
-                print("[MonitoredTerminal] Claude ready! Detected pattern: '\(pattern)'")
+                terminalLog("[READY] Claude ready! Detected pattern: '\(pattern)'")
                 isClaudeReady = true
                 DispatchQueue.main.async { [weak self] in
-                    print("[MonitoredTerminal] Calling onClaudeReady callback")
                     self?.onClaudeReady?()
                 }
                 break
