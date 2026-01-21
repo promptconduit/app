@@ -95,6 +95,9 @@ class ClaudeSessionDiscovery: ObservableObject {
 
     /// Starts automatic refresh of session statuses
     func startMonitoring() {
+        // Pre-warm the process cache asynchronously
+        refreshProcessCacheIfNeeded()
+
         refresh()
         refreshTimer?.invalidate()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
@@ -125,13 +128,16 @@ class ClaudeSessionDiscovery: ObservableObject {
 
     /// Refreshes just the status of existing sessions (faster)
     func refreshStatuses() {
+        // Trigger async process cache refresh (non-blocking)
+        refreshProcessCacheIfNeeded()
+
         for i in repoGroups.indices {
             for j in repoGroups[i].sessions.indices {
                 let session = repoGroups[i].sessions[j]
                 if let info = try? FileManager.default.attributesOfItem(atPath: session.filePath),
                    let modDate = info[.modificationDate] as? Date {
                     repoGroups[i].sessions[j].lastActivity = modDate
-                    repoGroups[i].sessions[j].status = detectStatus(modificationDate: modDate)
+                    repoGroups[i].sessions[j].status = detectStatus(modificationDate: modDate, repoPath: session.repoPath)
                 }
             }
         }
@@ -257,7 +263,7 @@ class ClaudeSessionDiscovery: ObservableObject {
             filePath: path,
             repoPath: repoPath,
             title: title ?? String(sessionId.prefix(8)) + "...",
-            status: detectStatus(modificationDate: modDate),
+            status: detectStatus(modificationDate: modDate, repoPath: repoPath),
             lastActivity: modDate,
             messageCount: messageCount
         )
@@ -352,8 +358,14 @@ class ClaudeSessionDiscovery: ObservableObject {
         return nil
     }
 
-    /// Determines session status based on file modification time
-    private func detectStatus(modificationDate: Date) -> ClaudeSessionStatus {
+    /// Determines session status based on file modification time and process activity
+    private func detectStatus(modificationDate: Date, repoPath: String) -> ClaudeSessionStatus {
+        // Check cached process info (never blocks - uses last known state)
+        if Self.processCache[repoPath] == true {
+            return .running
+        }
+
+        // Fall back to file modification time
         let age = Date().timeIntervalSince(modificationDate)
 
         switch age {
@@ -364,6 +376,71 @@ class ClaudeSessionDiscovery: ObservableObject {
         default:
             return .idle
         }
+    }
+
+    /// Cache for running Claude processes (repo path -> is running)
+    private static var processCache: [String: Bool] = [:]
+    private static var lastProcessCheck: Date?
+    private static var isRefreshing = false
+
+    /// Refreshes the process cache asynchronously (called during status refresh)
+    private func refreshProcessCacheIfNeeded() {
+        let now = Date()
+
+        // Only refresh every 5 seconds and don't overlap refreshes
+        guard !Self.isRefreshing else { return }
+        if let lastCheck = Self.lastProcessCheck,
+           now.timeIntervalSince(lastCheck) < 5.0 {
+            return
+        }
+
+        Self.isRefreshing = true
+        Self.lastProcessCheck = now
+
+        // Run lsof in background to avoid blocking UI
+        DispatchQueue.global(qos: .utility).async {
+            let result = self.findRunningClaudeProcesses()
+
+            DispatchQueue.main.async {
+                Self.processCache = result
+                Self.isRefreshing = false
+            }
+        }
+    }
+
+    /// Finds all running Claude processes and their working directories
+    private func findRunningClaudeProcesses() -> [String: Bool] {
+        var result: [String: Bool] = [:]
+
+        // Use pgrep + lsof with timeout to find Claude processes
+        // pgrep is faster than lsof -c for initial check
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // Use timeout to prevent hanging, and only get cwd for claude processes
+        task.arguments = ["-c", "for pid in $(pgrep -x claude 2>/dev/null); do lsof -p $pid 2>/dev/null | grep cwd | awk '{print $NF}'; done"]
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8) {
+                for line in output.components(separatedBy: .newlines) {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if !trimmed.isEmpty {
+                        result[trimmed] = true
+                    }
+                }
+            }
+        } catch {
+            // Silently fail - fall back to file-based detection
+        }
+
+        return result
     }
 
     /// Disambiguates repo names when multiple repos have the same base name
