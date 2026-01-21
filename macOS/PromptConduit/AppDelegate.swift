@@ -38,6 +38,62 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         agentPanelController?.closeAllPanels()
     }
 
+    // MARK: - URL Handling (Deep Links)
+
+    /// Handle URLs: promptconduit://group/{groupId}?highlight={sessionId}
+    ///              promptconduit://session/{sessionId}
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            handleDeepLink(url)
+        }
+    }
+
+    private func handleDeepLink(_ url: URL) {
+        guard url.scheme == "promptconduit" else { return }
+
+        let host = url.host ?? ""
+        let pathComponents = url.pathComponents.filter { $0 != "/" }
+
+        // Parse query parameters
+        var queryParams: [String: String] = [:]
+        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let queryItems = components.queryItems {
+            for item in queryItems {
+                queryParams[item.name] = item.value
+            }
+        }
+
+        // Initialize controller if needed
+        if agentPanelController == nil {
+            agentPanelController = AgentPanelController()
+        }
+
+        switch host {
+        case "group":
+            // Handle: promptconduit://group/{groupId}?highlight={sessionId}
+            if let groupIdString = pathComponents.first,
+               let groupId = UUID(uuidString: groupIdString) {
+                let highlightSessionId: UUID? = queryParams["highlight"].flatMap { UUID(uuidString: $0) }
+                agentPanelController?.navigateToSessionGroup(groupId, highlightSession: highlightSessionId)
+            }
+
+        case "session":
+            // Handle: promptconduit://session/{sessionId}
+            if let sessionIdString = pathComponents.first,
+               let sessionId = UUID(uuidString: sessionIdString) {
+                agentPanelController?.navigateToTerminalSession(sessionId)
+            }
+
+        case "dashboard":
+            // Handle: promptconduit://dashboard
+            agentPanelController?.showSessionsDashboardPanel()
+
+        default:
+            // Unknown host, just open dashboard
+            agentPanelController?.showSessionsDashboardPanel()
+        }
+    }
+
     // MARK: - Menu Bar Setup
 
     private func setupMenuBar() {
@@ -81,21 +137,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         agentsSeparator.tag = 102  // Tag to identify where agents section ends
         menu.addItem(agentsSeparator)
 
-        // Actions
-        let newAgentItem = NSMenuItem(title: "New Agent...", action: #selector(showNewAgentPanel), keyEquivalent: "n")
-        newAgentItem.keyEquivalentModifierMask = [.command, .shift]
-        newAgentItem.target = self
-        menu.addItem(newAgentItem)
+        // Actions - Sessions Dashboard is the main entry point
+        let dashboardItem = NSMenuItem(title: "Sessions Dashboard...", action: #selector(showSessionsDashboard), keyEquivalent: "d")
+        dashboardItem.keyEquivalentModifierMask = [.command, .shift]
+        dashboardItem.target = self
+        menu.addItem(dashboardItem)
 
         let reposItem = NSMenuItem(title: "Repositories...", action: #selector(showReposWindow), keyEquivalent: "r")
         reposItem.keyEquivalentModifierMask = [.command, .shift]
         reposItem.target = self
         menu.addItem(reposItem)
-
-        let dashboardItem = NSMenuItem(title: "Sessions Dashboard...", action: #selector(showSessionsDashboard), keyEquivalent: "d")
-        dashboardItem.keyEquivalentModifierMask = [.command, .shift]
-        dashboardItem.target = self
-        menu.addItem(dashboardItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -172,6 +223,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        // Observe session groups
+        SettingsService.shared.$sessionGroups
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateAgentsMenu()
+            }
+            .store(in: &cancellables)
+
         // Trigger initial update
         updateAgentsMenu()
     }
@@ -192,13 +251,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let managedSessions = AgentManager.shared.sessions
         let terminalSessions = TerminalSessionManager.shared.sessions
         let externalProcesses = ProcessDetectionService.shared.externalProcesses
+        let activeSessionGroups = SettingsService.shared.activeSessionGroups()
 
-        let hasAnyAgents = !managedSessions.isEmpty || !terminalSessions.isEmpty || !externalProcesses.isEmpty
+        let hasAnyAgents = !managedSessions.isEmpty || !terminalSessions.isEmpty || !externalProcesses.isEmpty || !activeSessionGroups.isEmpty
 
         // Show/hide "No active agents" placeholder
         noAgentsMenuItem?.isHidden = hasAnyAgents
 
         if hasAnyAgents {
+            // Add active session groups first (unified dashboard)
+            if !activeSessionGroups.isEmpty {
+                for group in activeSessionGroups {
+                    let statusEmoji = group.status == .waiting ? "🟡" : "🟢"
+                    let waitingLabel = group.status == .waiting ? " - Waiting" : ""
+                    let title = "  \(statusEmoji) \(group.displayName) (\(group.repoCount) repos)\(waitingLabel)"
+                    let item = NSMenuItem(title: title, action: #selector(selectSessionGroup(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = group.id
+                    menu.insertItem(item, at: insertIndex)
+                    agentsMenuItems.append(item)
+                    insertIndex += 1
+                }
+
+                // Add separator after session groups
+                let sep = NSMenuItem.separator()
+                menu.insertItem(sep, at: insertIndex)
+                agentsMenuItems.append(sep)
+                insertIndex += 1
+            }
+
             // Add managed sessions (PTY-based print mode)
             for (index, session) in managedSessions.enumerated() {
                 let title = "  \(session.status.emoji) \(session.repoName)"
@@ -275,12 +356,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let terminalWaitingCount = terminalManager.waitingCount
         let externalCount = ProcessDetectionService.shared.externalProcesses.count
 
-        // Show yellow when any session is waiting for input (PTY or terminal)
-        if manager.waitingCount > 0 || terminalWaitingCount > 0 {
+        // Check session groups for waiting state
+        let activeGroups = SettingsService.shared.activeSessionGroups()
+        let sessionGroupWaitingCount = activeGroups.filter { $0.status == .waiting }.count
+        let sessionGroupActiveCount = activeGroups.count
+
+        // Show yellow when any session is waiting for input (PTY, terminal, or session group)
+        if manager.waitingCount > 0 || terminalWaitingCount > 0 || sessionGroupWaitingCount > 0 {
             button.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "PromptConduit - Waiting")
             button.image?.isTemplate = false  // Allow color tint
             button.contentTintColor = .systemYellow
-        } else if manager.runningCount > 0 || terminalRunningCount > 0 || externalCount > 0 {
+        } else if manager.runningCount > 0 || terminalRunningCount > 0 || externalCount > 0 || sessionGroupActiveCount > 0 {
             button.image = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "PromptConduit - Running")
             button.image?.isTemplate = false  // Allow color tint
             button.contentTintColor = .systemGreen
@@ -290,6 +376,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.image?.isTemplate = true
             button.contentTintColor = nil
         }
+    }
+
+    @objc private func selectSessionGroup(_ sender: NSMenuItem) {
+        guard let groupId = sender.representedObject as? UUID else { return }
+
+        // Navigate to the session group in the dashboard
+        if agentPanelController == nil {
+            agentPanelController = AgentPanelController()
+        }
+        agentPanelController?.navigateToSessionGroup(groupId)
     }
 
     @objc private func selectManagedAgent(_ sender: NSMenuItem) {
@@ -413,13 +509,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Global Hotkey
 
     private func registerGlobalHotkey() {
-        // Register Cmd+Shift+A global hotkey
+        // Register Cmd+Shift+D global hotkey for dashboard
         // Note: Requires Accessibility permissions
         NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            // Check for Cmd+Shift+A
-            if event.modifierFlags.contains([.command, .shift]) && event.keyCode == 0 {
+            // Check for Cmd+Shift+D
+            if event.modifierFlags.contains([.command, .shift]) && event.keyCode == 2 {
                 DispatchQueue.main.async {
-                    self?.showNewAgentPanel()
+                    self?.showSessionsDashboard()
                 }
             }
         }

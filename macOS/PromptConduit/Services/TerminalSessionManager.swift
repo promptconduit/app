@@ -44,21 +44,42 @@ class TerminalSessionManager: ObservableObject {
 
     private func setupHookListening() {
         let hookService = HookNotificationService.shared
+        let logPath = "/tmp/promptconduit-terminal.log"
+
+        func hookLog(_ msg: String) {
+            let line = "[HOOK \(Date())] \(msg)\n"
+            if let handle = FileHandle(forWritingAtPath: logPath) {
+                handle.seekToEndOfFile()
+                handle.write(line.data(using: .utf8)!)
+                handle.closeFile()
+            }
+            print("[HOOK] \(msg)")
+        }
 
         // Session started → associate Claude session ID, mark as hook-managed, and set waiting
         hookService.onSessionStart = { [weak self] event in
+            hookLog("onSessionStart: cwd=\(event.cwd), sessionId=\(event.sessionId ?? "nil")")
+            hookLog("  Available sessions: \(self?.sessions.map { "[\($0.repoName): wd=\($0.workingDirectory), isWaiting=\($0.isWaiting)]" } ?? [])")
+
             self?.associateClaudeSession(cwd: event.cwd, claudeSessionId: event.sessionId)
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                hookLog("  MATCHED session index \(index): \(self?.sessions[index].repoName ?? "?") - setting isWaiting=TRUE")
                 // Mark session as hook-managed - output parsing will no longer change state
                 self?.sessions[index].outputMonitor?.setHookManaged()
                 // Force set waiting state (hooks are authoritative)
                 self?.sessions[index].outputMonitor?.forceSetWaiting(true)
+            } else {
+                hookLog("  NO MATCH found for cwd")
             }
         }
 
         // User submitted prompt → running
         hookService.onUserPromptSubmit = { [weak self] event in
+            hookLog("onUserPromptSubmit: cwd=\(event.cwd), sessionId=\(event.sessionId ?? "nil")")
+            hookLog("  Available sessions: \(self?.sessions.map { "[\($0.repoName): wd=\($0.workingDirectory), isWaiting=\($0.isWaiting)]" } ?? [])")
+
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                hookLog("  MATCHED session index \(index): \(self?.sessions[index].repoName ?? "?") - setting isWaiting=FALSE (Running)")
                 // Mark as hook-managed on any hook event (handles race condition where
                 // SessionStart fires before session is registered)
                 self?.sessions[index].outputMonitor?.setHookManaged()
@@ -66,17 +87,25 @@ class TerminalSessionManager: ObservableObject {
                 self?.sessions[index].outputMonitor?.clearBuffer()
                 // Force set running state (hooks are authoritative)
                 self?.sessions[index].outputMonitor?.forceSetWaiting(false)
+            } else {
+                hookLog("  NO MATCH found for cwd")
             }
         }
 
         // Claude stopped → waiting
         hookService.onStop = { [weak self] event in
+            hookLog("onStop: cwd=\(event.cwd), sessionId=\(event.sessionId ?? "nil")")
+            hookLog("  Available sessions: \(self?.sessions.map { "[\($0.repoName): wd=\($0.workingDirectory), isWaiting=\($0.isWaiting)]" } ?? [])")
+
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
+                hookLog("  MATCHED session index \(index): \(self?.sessions[index].repoName ?? "?") - setting isWaiting=TRUE (Waiting)")
                 // Mark as hook-managed on any hook event (handles race condition where
                 // SessionStart fires before session is registered)
                 self?.sessions[index].outputMonitor?.setHookManaged()
                 // Force set waiting state (hooks are authoritative)
                 self?.sessions[index].outputMonitor?.forceSetWaiting(true)
+            } else {
+                hookLog("  NO MATCH found for cwd")
             }
         }
     }
@@ -90,22 +119,57 @@ class TerminalSessionManager: ObservableObject {
 
     /// Finds session by Claude session ID first, then by cwd/directory name
     private func findSessionIndex(cwd: String, sessionId: String?) -> Int? {
+        let logPath = "/tmp/promptconduit-terminal.log"
+        func findLog(_ msg: String) {
+            let line = "[FIND \(Date())] \(msg)\n"
+            if let handle = FileHandle(forWritingAtPath: logPath) {
+                handle.seekToEndOfFile()
+                handle.write(line.data(using: .utf8)!)
+                handle.closeFile()
+            }
+        }
+
+        findLog("findSessionIndex: cwd=\(cwd), sessionId=\(sessionId ?? "nil")")
+        findLog("  sessions count: \(sessions.count)")
+
         // Try Claude session ID first (most reliable)
-        if let sessionId = sessionId,
-           let index = sessions.firstIndex(where: { $0.claudeSessionId == sessionId }) {
-            return index
+        if let sessionId = sessionId {
+            findLog("  Trying Claude sessionId match...")
+            for (i, session) in sessions.enumerated() {
+                findLog("    [\(i)] \(session.repoName): claudeSessionId=\(session.claudeSessionId ?? "nil")")
+            }
+            if let index = sessions.firstIndex(where: { $0.claudeSessionId == sessionId }) {
+                findLog("  MATCHED by claudeSessionId at index \(index): \(sessions[index].repoName)")
+                return index
+            }
         }
 
         // Try exact cwd match
+        findLog("  Trying exact cwd match...")
+        for (i, session) in sessions.enumerated() {
+            findLog("    [\(i)] \(session.repoName): wd=\(session.workingDirectory) vs cwd=\(cwd) → match=\(session.workingDirectory == cwd)")
+        }
         if let index = sessions.firstIndex(where: { $0.workingDirectory == cwd }) {
+            findLog("  MATCHED by exact cwd at index \(index): \(sessions[index].repoName)")
             return index
         }
 
         // Fallback: match by directory name (handles path differences)
         let eventDirName = URL(fileURLWithPath: cwd).lastPathComponent
-        return sessions.firstIndex(where: {
+        findLog("  Trying directory name match: eventDirName=\(eventDirName)")
+        for (i, session) in sessions.enumerated() {
+            let sessionDirName = URL(fileURLWithPath: session.workingDirectory).lastPathComponent
+            findLog("    [\(i)] \(session.repoName): dirName=\(sessionDirName) vs eventDirName=\(eventDirName) → match=\(sessionDirName == eventDirName)")
+        }
+        if let index = sessions.firstIndex(where: {
             URL(fileURLWithPath: $0.workingDirectory).lastPathComponent == eventDirName
-        })
+        }) {
+            findLog("  MATCHED by directory name at index \(index): \(sessions[index].repoName)")
+            return index
+        }
+
+        findLog("  NO MATCH FOUND")
+        return nil
     }
 
     /// Update session state using flexible matching
@@ -118,6 +182,16 @@ class TerminalSessionManager: ObservableObject {
 
     /// Registers a new terminal session
     func registerSession(id: UUID, repoName: String, workingDirectory: String, groupId: UUID? = nil) {
+        // Log registration
+        let logPath = "/tmp/promptconduit-terminal.log"
+        let regMsg = "[REG] registerSession: id=\(id.uuidString.prefix(8)), repo=\(repoName), wd=\(workingDirectory), groupId=\(groupId?.uuidString.prefix(8) ?? "nil")\n"
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            handle.seekToEndOfFile()
+            handle.write(regMsg.data(using: .utf8)!)
+            handle.closeFile()
+        }
+        print("[REG] \(regMsg)")
+
         // Create output monitor for waiting state detection
         let monitor = TerminalOutputMonitor()
 
@@ -133,10 +207,37 @@ class TerminalSessionManager: ObservableObject {
 
         // Setup monitoring callback
         monitor.onWaitingStateChanged = { [weak self] isWaiting in
+            let cbMsg = "[CALLBACK] onWaitingStateChanged for \(repoName): isWaiting=\(isWaiting)\n"
+            if let handle = FileHandle(forWritingAtPath: logPath) {
+                handle.seekToEndOfFile()
+                handle.write(cbMsg.data(using: .utf8)!)
+                handle.closeFile()
+            }
+            print("[CALLBACK] \(cbMsg)")
             self?.updateWaitingState(id, isWaiting: isWaiting)
         }
 
+        // For sessions launched from the app (with groupId), make them hook-managed by default
+        // This prevents the output parser from incorrectly changing state before hooks fire
+        // The output parser often misdetects the Claude banner/ANSI codes as "not waiting"
+        if groupId != nil {
+            monitor.setHookManaged()
+            let hookManagedMsg = "[REG] Session \(repoName) set to hook-managed (has groupId)\n"
+            if let handle = FileHandle(forWritingAtPath: logPath) {
+                handle.seekToEndOfFile()
+                handle.write(hookManagedMsg.data(using: .utf8)!)
+                handle.closeFile()
+            }
+        }
+
         sessions.append(session)
+
+        let countMsg = "[REG] Session count now: \(sessions.count). All sessions: \(sessions.map { "[\($0.repoName): \($0.workingDirectory)]" })\n"
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            handle.seekToEndOfFile()
+            handle.write(countMsg.data(using: .utf8)!)
+            handle.closeFile()
+        }
 
         // Register working directory to exclude from external detection
         ProcessDetectionService.shared.registerManagedWorkingDirectory(workingDirectory)
@@ -158,9 +259,17 @@ class TerminalSessionManager: ObservableObject {
         // Ignore callbacks during cleanup to prevent crashes
         guard !isCleaningUp else { return }
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+
+        let groupId = sessions[index].groupId
+
         sessions[index].isRunning = false
         sessions[index].isWaiting = false
         sessions[index].outputMonitor?.stopMonitoring()
+
+        // Update SessionGroup status if this session belongs to a group
+        if let groupId = groupId {
+            updateSessionGroupStatus(groupId)
+        }
         // Note: We keep the working directory registered until the session is removed
         // so it doesn't appear in external list while window is still open
     }
@@ -212,8 +321,36 @@ class TerminalSessionManager: ObservableObject {
             NotificationService.shared.cancelNotification(for: id)
         }
 
+        // Update SessionGroup status if this session belongs to a group
+        if let groupId = sessions[index].groupId {
+            updateSessionGroupStatus(groupId)
+        }
+
         // Notify observers of state change
         objectWillChange.send()
+    }
+
+    /// Updates the SessionGroup status based on its terminal sessions' states
+    private func updateSessionGroupStatus(_ groupId: UUID) {
+        let groupSessions = sessions.filter { $0.groupId == groupId }
+
+        // Count running and waiting sessions
+        let runningCount = groupSessions.filter { $0.isRunning && !$0.isWaiting }.count
+        let waitingCount = groupSessions.filter { $0.isRunning && $0.isWaiting }.count
+
+        // Log for debugging
+        let logPath = "/tmp/promptconduit-terminal.log"
+        let logMsg = "[TSM] updateSessionGroupStatus: groupId=\(groupId.uuidString.prefix(8)), running=\(runningCount), waiting=\(waitingCount)\n"
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            handle.seekToEndOfFile()
+            handle.write(logMsg.data(using: .utf8)!)
+            handle.closeFile()
+        }
+
+        // Update the SessionGroup in SettingsService
+        SettingsService.shared.updateSessionGroup(id: groupId) { group in
+            group.updateStatus(runningCount: runningCount, waitingCount: waitingCount)
+        }
     }
 
     /// Process terminal output for waiting state detection
@@ -485,4 +622,13 @@ class TerminalSessionManager: ObservableObject {
 extension Notification.Name {
     /// Posted when a terminal session should be focused
     static let focusTerminalSession = Notification.Name("focusTerminalSession")
+
+    /// Posted when a terminal session should be highlighted (for deep linking)
+    static let highlightTerminalSession = Notification.Name("highlightTerminalSession")
+
+    /// Posted when the dashboard should navigate to a session group
+    static let navigateToSessionGroup = Notification.Name("navigateToSessionGroup")
+
+    /// Posted when the dashboard should navigate to a terminal session
+    static let navigateToTerminalSession = Notification.Name("navigateToTerminalSession")
 }

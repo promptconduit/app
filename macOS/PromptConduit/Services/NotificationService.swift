@@ -155,11 +155,20 @@ class NotificationService: NSObject, ObservableObject {
         content.sound = .default
         content.categoryIdentifier = CategoryIdentifier.waitingInput
 
+        // Build deep link URL
+        let deepLink: String
+        if let groupId = groupId {
+            deepLink = "promptconduit://group/\(groupId.uuidString)?highlight=\(sessionId.uuidString)"
+        } else {
+            deepLink = "promptconduit://session/\(sessionId.uuidString)"
+        }
+
         content.userInfo = [
             "sessionId": sessionId.uuidString,
             "groupId": groupId?.uuidString ?? "",
             "repoName": repoName,
-            "action": "focus_terminal"
+            "action": "focus_terminal",
+            "deepLink": deepLink
         ]
 
         // Use session ID as identifier to replace existing notification for same session
@@ -192,11 +201,20 @@ class NotificationService: NSObject, ObservableObject {
         content.sound = .default
         content.categoryIdentifier = CategoryIdentifier.sessionCompleted
 
+        // Build deep link URL
+        let deepLink: String
+        if let groupId = groupId {
+            deepLink = "promptconduit://group/\(groupId.uuidString)?highlight=\(sessionId.uuidString)"
+        } else {
+            deepLink = "promptconduit://session/\(sessionId.uuidString)"
+        }
+
         content.userInfo = [
             "sessionId": sessionId.uuidString,
             "groupId": groupId?.uuidString ?? "",
             "repoName": repoName,
-            "action": "focus_terminal"
+            "action": "focus_terminal",
+            "deepLink": deepLink
         ]
 
         let request = UNNotificationRequest(
@@ -270,7 +288,14 @@ extension NotificationService: UNUserNotificationCenterDelegate {
     }
 
     private func handleOpenSession(userInfo: [AnyHashable: Any]) {
-        // Try to get session ID
+        // Try to use deep link first (preferred method)
+        if let deepLinkString = userInfo["deepLink"] as? String,
+           let deepLinkURL = URL(string: deepLinkString) {
+            NSWorkspace.shared.open(deepLinkURL)
+            return
+        }
+
+        // Fallback: Try to get session ID
         if let sessionIdString = userInfo["sessionId"] as? String,
            let sessionId = UUID(uuidString: sessionIdString) {
             onFocusSession?(sessionId)
