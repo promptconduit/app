@@ -13,6 +13,11 @@ struct TerminalSessionInfo: Identifiable {
     var claudeSessionId: String? = nil  // Claude Code's session ID for reliable matching
     weak var terminalView: LocalProcessTerminalView? = nil
     var outputMonitor: TerminalOutputMonitor? = nil
+
+    // MARK: - Prompt Management (Single Source of Truth)
+    var pendingPrompt: String? = nil  // Prompt to send when session becomes ready
+    var isReadyForPrompt: Bool = false  // Set true when SessionStart hook fires
+    var promptSent: Bool = false  // Track if we've already sent the prompt
 }
 
 /// Manages terminal sessions launched from PromptConduit
@@ -22,6 +27,10 @@ class TerminalSessionManager: ObservableObject {
 
     @Published private(set) var sessions: [TerminalSessionInfo] = []
     @Published private(set) var sessionGroups: [MultiSessionGroup] = []
+
+    /// Sessions that are ready to receive their initial prompt
+    /// Views observe this to know when to send prompts
+    @Published private(set) var sessionsReadyForPrompt: Set<UUID> = []
 
     /// Flag to prevent callbacks during cleanup
     private var isCleaningUp = false
@@ -56,18 +65,31 @@ class TerminalSessionManager: ObservableObject {
             print("[HOOK] \(msg)")
         }
 
-        // Session started → associate Claude session ID, mark as hook-managed, and set waiting
+        // Session started → associate Claude session ID, mark as hook-managed, set waiting, and mark ready for prompt
         hookService.onSessionStart = { [weak self] event in
             hookLog("onSessionStart: cwd=\(event.cwd), sessionId=\(event.sessionId ?? "nil")")
-            hookLog("  Available sessions: \(self?.sessions.map { "[\($0.repoName): wd=\($0.workingDirectory), isWaiting=\($0.isWaiting)]" } ?? [])")
+            hookLog("  Available sessions: \(self?.sessions.map { "[\($0.repoName): wd=\($0.workingDirectory), isWaiting=\($0.isWaiting), hasPendingPrompt=\($0.pendingPrompt != nil)]" } ?? [])")
 
             self?.associateClaudeSession(cwd: event.cwd, claudeSessionId: event.sessionId)
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
-                hookLog("  MATCHED session index \(index): \(self?.sessions[index].repoName ?? "?") - setting isWaiting=TRUE")
+                let sessionId = self?.sessions[index].id
+                let repoName = self?.sessions[index].repoName ?? "?"
+                let hasPendingPrompt = self?.sessions[index].pendingPrompt != nil
+                let promptAlreadySent = self?.sessions[index].promptSent ?? false
+
+                hookLog("  MATCHED session index \(index): \(repoName) - setting isWaiting=TRUE, hasPendingPrompt=\(hasPendingPrompt)")
+
                 // Mark session as hook-managed - output parsing will no longer change state
                 self?.sessions[index].outputMonitor?.setHookManaged()
                 // Force set waiting state (hooks are authoritative)
                 self?.sessions[index].outputMonitor?.forceSetWaiting(true)
+
+                // Mark session as ready for prompt if it has a pending prompt that hasn't been sent
+                if hasPendingPrompt && !promptAlreadySent, let sessionId = sessionId {
+                    hookLog("  Session \(repoName) marked READY FOR PROMPT")
+                    self?.sessions[index].isReadyForPrompt = true
+                    self?.sessionsReadyForPrompt.insert(sessionId)
+                }
             } else {
                 hookLog("  NO MATCH found for cwd")
             }
@@ -154,17 +176,16 @@ class TerminalSessionManager: ObservableObject {
             return index
         }
 
-        // Fallback: match by directory name (handles path differences)
-        let eventDirName = URL(fileURLWithPath: cwd).lastPathComponent
-        findLog("  Trying directory name match: eventDirName=\(eventDirName)")
+        // Try prefix match: hook cwd might be a subdirectory of the repo
+        // e.g., session launched for /repo/app but Claude runs in /repo/app/macOS
+        findLog("  Trying prefix match (cwd is subdirectory of repo)...")
         for (i, session) in sessions.enumerated() {
-            let sessionDirName = URL(fileURLWithPath: session.workingDirectory).lastPathComponent
-            findLog("    [\(i)] \(session.repoName): dirName=\(sessionDirName) vs eventDirName=\(eventDirName) → match=\(sessionDirName == eventDirName)")
+            let repoPath = session.workingDirectory
+            let isSubdir = cwd.hasPrefix(repoPath + "/") || cwd == repoPath
+            findLog("    [\(i)] \(session.repoName): cwd.hasPrefix(\(repoPath)/) → \(isSubdir)")
         }
-        if let index = sessions.firstIndex(where: {
-            URL(fileURLWithPath: $0.workingDirectory).lastPathComponent == eventDirName
-        }) {
-            findLog("  MATCHED by directory name at index \(index): \(sessions[index].repoName)")
+        if let index = sessions.firstIndex(where: { cwd.hasPrefix($0.workingDirectory + "/") }) {
+            findLog("  MATCHED by prefix (subdirectory) at index \(index): \(sessions[index].repoName)")
             return index
         }
 
@@ -181,10 +202,16 @@ class TerminalSessionManager: ObservableObject {
     // MARK: - Session Management
 
     /// Registers a new terminal session
-    func registerSession(id: UUID, repoName: String, workingDirectory: String, groupId: UUID? = nil) {
+    /// - Parameters:
+    ///   - id: Unique session ID
+    ///   - repoName: Display name for the repository
+    ///   - workingDirectory: Full path to the working directory
+    ///   - groupId: Optional group ID for multi-session groups
+    ///   - pendingPrompt: Optional prompt to send when session becomes ready
+    func registerSession(id: UUID, repoName: String, workingDirectory: String, groupId: UUID? = nil, pendingPrompt: String? = nil) {
         // Log registration
         let logPath = "/tmp/promptconduit-terminal.log"
-        let regMsg = "[REG] registerSession: id=\(id.uuidString.prefix(8)), repo=\(repoName), wd=\(workingDirectory), groupId=\(groupId?.uuidString.prefix(8) ?? "nil")\n"
+        let regMsg = "[REG] registerSession: id=\(id.uuidString.prefix(8)), repo=\(repoName), wd=\(workingDirectory), groupId=\(groupId?.uuidString.prefix(8) ?? "nil"), hasPrompt=\(pendingPrompt != nil)\n"
         if let handle = FileHandle(forWritingAtPath: logPath) {
             handle.seekToEndOfFile()
             handle.write(regMsg.data(using: .utf8)!)
@@ -195,7 +222,7 @@ class TerminalSessionManager: ObservableObject {
         // Create output monitor for waiting state detection
         let monitor = TerminalOutputMonitor()
 
-        let session = TerminalSessionInfo(
+        var session = TerminalSessionInfo(
             id: id,
             repoName: repoName,
             workingDirectory: workingDirectory,
@@ -204,6 +231,7 @@ class TerminalSessionManager: ObservableObject {
             groupId: groupId,
             outputMonitor: monitor
         )
+        session.pendingPrompt = pendingPrompt
 
         // Setup monitoring callback
         monitor.onWaitingStateChanged = { [weak self] isWaiting in
@@ -252,6 +280,40 @@ class TerminalSessionManager: ObservableObject {
     /// Gets a session by ID
     func session(for id: UUID) -> TerminalSessionInfo? {
         sessions.first { $0.id == id }
+    }
+
+    // MARK: - Prompt Management (Single Source of Truth)
+
+    /// Gets the pending prompt for a session, if any
+    func getPendingPrompt(for sessionId: UUID) -> String? {
+        guard let session = sessions.first(where: { $0.id == sessionId }) else { return nil }
+        return session.pendingPrompt
+    }
+
+    /// Gets the terminal view for a session
+    func getTerminalView(for sessionId: UUID) -> LocalProcessTerminalView? {
+        guard let session = sessions.first(where: { $0.id == sessionId }) else { return nil }
+        return session.terminalView
+    }
+
+    /// Marks that a prompt has been sent to a session
+    /// Called by views after successfully sending the prompt
+    func markPromptSent(_ sessionId: UUID) {
+        let logPath = "/tmp/promptconduit-terminal.log"
+
+        guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+
+        let repoName = sessions[index].repoName
+        let logMsg = "[PROMPT] markPromptSent for \(repoName)\n"
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            handle.seekToEndOfFile()
+            handle.write(logMsg.data(using: .utf8)!)
+            handle.closeFile()
+        }
+
+        sessions[index].promptSent = true
+        sessions[index].isReadyForPrompt = false
+        sessionsReadyForPrompt.remove(sessionId)
     }
 
     /// Marks a session as terminated (process ended naturally)
