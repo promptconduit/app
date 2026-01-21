@@ -215,6 +215,11 @@ struct UnifiedDashboardView: View {
             // Search bar
             searchBar
 
+            // View mode toggle (only for Sessions tab)
+            if selectedTab == .sessions {
+                viewModePicker
+            }
+
             // Sidebar content based on view mode and selected tab
             if selectedTab == .sessions {
                 if sidebarViewMode == .byGroup {
@@ -584,37 +589,25 @@ struct UnifiedDashboardView: View {
     }
 
     private var sidebarHeader: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text(selectedTab.rawValue)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(TokyoNight.textPrimary)
+        HStack {
+            Text(selectedTab.rawValue)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(TokyoNight.textPrimary)
 
-                Spacer()
+            Spacer()
 
-                // New Session button (only for Sessions tab)
-                if selectedTab == .sessions {
-                    Button(action: {
-                        selectedGroupId = nil
-                        selectedSession = nil
-                    }) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(TokyoNight.accentCyan)
-                    }
-                    .buttonStyle(.plain)
-                    .help("New Session")
-                }
-            }
-
-            // View mode toggle (only for Sessions tab)
+            // New Session button (only for Sessions tab)
             if selectedTab == .sessions {
-                Picker("View Mode", selection: $sidebarViewMode) {
-                    ForEach(SidebarViewMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
+                Button(action: {
+                    selectedGroupId = nil
+                    selectedSession = nil
+                }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(TokyoNight.accentCyan)
                 }
-                .pickerStyle(.segmented)
+                .buttonStyle(.plain)
+                .help("New Session")
             }
         }
         .padding(16)
@@ -713,6 +706,17 @@ struct UnifiedDashboardView: View {
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+
+    private var viewModePicker: some View {
+        Picker("View Mode", selection: $sidebarViewMode) {
+            ForEach(SidebarViewMode.allCases, id: \.self) { mode in
+                Text(mode.rawValue).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Groups List View (By Group mode)
