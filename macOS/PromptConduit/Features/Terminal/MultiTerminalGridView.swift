@@ -29,35 +29,18 @@ struct MultiTerminalGridView: View {
     @State private var promptSentToSessions: Set<UUID> = []  // Track which sessions received the prompt
     @State private var repoPathToSessionId: [String: UUID] = [:]  // Map working directory to session ID
 
+    // Deep link highlight state
+    @State private var highlightedSessionId: UUID?
+    @State private var highlightOpacity: Double = 0
+
     /// Grid dimensions based on layout and repo count
     private var dimensions: (rows: Int, cols: Int) {
         layout.dimensions(for: repositories.count)
     }
 
-    /// Sessions in this group
-    private var groupSessions: [TerminalSessionInfo] {
-        terminalManager.sessions(for: groupId)
-    }
-
-    /// Count of waiting sessions
-    private var waitingCount: Int {
-        groupSessions.filter { $0.isWaiting }.count
-    }
-
-    /// Count of running sessions
-    private var runningCount: Int {
-        groupSessions.filter { $0.isRunning }.count
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            // Header bar
-            gridHeader
-
-            Divider()
-                .background(Color.gray.opacity(0.3))
-
-            // Terminal grid
+            // Terminal grid (header removed - redundant with group header)
             GeometryReader { geometry in
                 let cellWidth = (geometry.size.width - GridTokens.gridSpacing * CGFloat(dimensions.cols - 1)) / CGFloat(dimensions.cols)
                 let cellHeight = (geometry.size.height - GridTokens.gridSpacing * CGFloat(dimensions.rows - 1)) / CGFloat(dimensions.rows)
@@ -119,61 +102,26 @@ struct MultiTerminalGridView: View {
         }
         .onDisappear {
             hookService.onSessionStart = nil  // Clean up callback
+            // Clean up all sessions in this group when the view disappears
+            terminalManager.terminateGroup(groupId)
         }
         .onReceive(NotificationCenter.default.publisher(for: .focusTerminalSession)) { notification in
             handleFocusNotification(notification)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .highlightTerminalSession)) { notification in
+            handleHighlightNotification(notification)
+        }
     }
 
-    // MARK: - Header
-
-    private var gridHeader: some View {
-        HStack(spacing: 16) {
-            // Title and status
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Multi-Session")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(GridTokens.textPrimary)
-
-                HStack(spacing: 12) {
-                    // Running count
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 6, height: 6)
-                        Text("\(runningCount) running")
-                            .font(.system(size: 11))
-                            .foregroundColor(GridTokens.textSecondary)
-                    }
-
-                    // Waiting count (if any)
-                    if waitingCount > 0 {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(Color.yellow)
-                                .frame(width: 6, height: 6)
-                            Text("\(waitingCount) waiting")
-                                .font(.system(size: 11))
-                                .foregroundColor(Color.yellow)
-                        }
-                    }
-                }
-            }
-
-            Spacer()
-
-            // Close button
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundColor(GridTokens.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Close all terminals")
+    private func handleHighlightNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let targetGroupId = userInfo["groupId"] as? UUID,
+              targetGroupId == groupId,
+              let sessionId = userInfo["sessionId"] as? UUID else {
+            return
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(GridTokens.backgroundHeader)
+
+        highlightSession(sessionId)
     }
 
     // MARK: - Session Management
@@ -268,6 +216,36 @@ struct MultiTerminalGridView: View {
 
         focusedSessionId = sessionId
         focusTerminal(sessionId)
+
+        // Check if we should highlight
+        if let shouldHighlight = userInfo["highlight"] as? Bool, shouldHighlight {
+            highlightSession(sessionId)
+        }
+    }
+
+    // MARK: - Deep Link Highlighting
+
+    /// Highlights a session with an orange glow that fades after 3 seconds
+    func highlightSession(_ sessionId: UUID) {
+        highlightedSessionId = sessionId
+        withAnimation(.easeIn(duration: 0.3)) {
+            highlightOpacity = 1.0
+        }
+
+        // Fade after 3 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            withAnimation(.easeOut(duration: 0.5)) {
+                highlightOpacity = 0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                highlightedSessionId = nil
+            }
+        }
+    }
+
+    /// Check if a specific session is highlighted
+    func isSessionHighlighted(_ sessionId: UUID) -> Bool {
+        highlightedSessionId == sessionId && highlightOpacity > 0
     }
 
     /// Sends the initial prompt to a terminal if one was provided and hasn't been sent yet

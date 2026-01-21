@@ -89,9 +89,11 @@ struct TerminalCellView: View {
                 .stroke(borderColor, lineWidth: borderWidth)
         )
         .cornerRadius(4)
-        .onTapGesture {
-            onFocus()
-        }
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                onFocus()
+            }
+        )
     }
 
     // MARK: - Header

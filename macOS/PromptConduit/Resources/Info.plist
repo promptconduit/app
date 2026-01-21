@@ -32,5 +32,16 @@
     <string>NSApplication</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>PromptConduit needs to send Apple Events to control other applications.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.promptconduit.deeplink</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>promptconduit</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

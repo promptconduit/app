@@ -184,18 +184,17 @@ class AgentPanelController {
         repositoriesPanel = panel
     }
 
-    /// Shows the sessions dashboard panel
+    /// Shows the sessions dashboard panel (unified dashboard view)
     func showSessionsDashboardPanel() {
         // Close existing dashboard panel if open
         sessionsDashboardPanel?.close()
 
         let panel = createPanel()
-        panel.title = "Claude Code Sessions"
+        panel.title = "PromptConduit Sessions"
 
-        let view = SessionDashboardView(
+        let view = UnifiedDashboardView(
             onResumeSession: { [weak self, weak panel] session in
-                // Close dashboard and launch Claude Code with resume
-                panel?.close()
+                // Launch Claude Code with resume
                 self?.resumeClaudeCodeSession(session)
             },
             onClose: { [weak panel] in
@@ -204,13 +203,45 @@ class AgentPanelController {
         )
         panel.contentView = NSHostingView(rootView: view)
 
-        // Make the panel larger for the dashboard layout
-        panel.setContentSize(NSSize(width: 1000, height: 700))
+        // Make the panel larger for the unified dashboard layout
+        panel.setContentSize(NSSize(width: 1200, height: 800))
+        panel.minSize = NSSize(width: 1000, height: 600)
 
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
         sessionsDashboardPanel = panel
+    }
+
+    /// Navigate to a specific session group in the dashboard
+    func navigateToSessionGroup(_ groupId: UUID, highlightSession sessionId: UUID? = nil) {
+        showSessionsDashboardPanel()
+
+        // Post notification to navigate to the group
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            NotificationCenter.default.post(
+                name: .navigateToSessionGroup,
+                object: nil,
+                userInfo: [
+                    "groupId": groupId,
+                    "highlightSessionId": sessionId as Any
+                ]
+            )
+        }
+    }
+
+    /// Navigate to a specific terminal session in the dashboard
+    func navigateToTerminalSession(_ sessionId: UUID) {
+        showSessionsDashboardPanel()
+
+        // Post notification to navigate to the session
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            NotificationCenter.default.post(
+                name: .navigateToTerminalSession,
+                object: nil,
+                userInfo: ["sessionId": sessionId]
+            )
+        }
     }
 
     /// Resume a Claude Code session by launching claude with --resume flag

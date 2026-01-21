@@ -124,6 +124,7 @@ class SettingsService: ObservableObject {
     private static let maxRecentRepos = 10
     private static let maxSessionHistory = 50
     private static let maxTemplates = 20
+    private static let maxSessionGroups = 50
 
     // MARK: - Published Settings
 
@@ -162,6 +163,7 @@ class SettingsService: ObservableObject {
     @Published private(set) var recentRepositories: [RecentRepository] = []
     @Published private(set) var sessionHistory: [SessionHistory] = []
     @Published private(set) var repositoryTemplates: [RepositoryTemplate] = []
+    @Published private(set) var sessionGroups: [SessionGroup] = []
 
     // MARK: - Paths
 
@@ -235,6 +237,12 @@ class SettingsService: ObservableObject {
         if let data = defaults.data(forKey: "repositoryTemplates"),
            let templates = try? JSONDecoder().decode([RepositoryTemplate].self, from: data) {
             self.repositoryTemplates = templates
+        }
+
+        // Load session groups
+        if let data = defaults.data(forKey: "sessionGroups"),
+           let groups = try? JSONDecoder().decode([SessionGroup].self, from: data) {
+            self.sessionGroups = groups
         }
     }
 
@@ -441,5 +449,96 @@ class SettingsService: ObservableObject {
     func clearRepositoryTemplates() {
         repositoryTemplates.removeAll()
         saveRepositoryTemplates()
+    }
+
+    // MARK: - Session Groups
+
+    private func saveSessionGroups() {
+        if let data = try? JSONEncoder().encode(sessionGroups) {
+            defaults.set(data, forKey: "sessionGroups")
+        }
+    }
+
+    /// Saves a new session group
+    func saveSessionGroup(_ group: SessionGroup) {
+        // Check if already exists (update it)
+        if let index = sessionGroups.firstIndex(where: { $0.id == group.id }) {
+            sessionGroups[index] = group
+        } else {
+            // Add new group at the beginning
+            sessionGroups.insert(group, at: 0)
+
+            // Keep only the most recent N groups
+            if sessionGroups.count > Self.maxSessionGroups {
+                sessionGroups = Array(sessionGroups.prefix(Self.maxSessionGroups))
+            }
+        }
+
+        saveSessionGroups()
+    }
+
+    /// Updates an existing session group
+    func updateSessionGroup(_ group: SessionGroup) {
+        if let index = sessionGroups.firstIndex(where: { $0.id == group.id }) {
+            sessionGroups[index] = group
+            saveSessionGroups()
+        }
+    }
+
+    /// Updates a session group by ID with a closure
+    func updateSessionGroup(id: UUID, update: (inout SessionGroup) -> Void) {
+        if let index = sessionGroups.firstIndex(where: { $0.id == id }) {
+            update(&sessionGroups[index])
+            saveSessionGroups()
+        }
+    }
+
+    /// Archives a session group (moves to completed state)
+    func archiveSessionGroup(_ id: UUID) {
+        if let index = sessionGroups.firstIndex(where: { $0.id == id }) {
+            sessionGroups[index].archive()
+            saveSessionGroups()
+        }
+    }
+
+    /// Deletes a session group by ID
+    func deleteSessionGroup(_ id: UUID) {
+        sessionGroups.removeAll { $0.id == id }
+        saveSessionGroups()
+    }
+
+    /// Gets a session group by ID
+    func sessionGroup(for id: UUID) -> SessionGroup? {
+        sessionGroups.first { $0.id == id }
+    }
+
+    /// Gets active session groups (not completed or archived)
+    func activeSessionGroups() -> [SessionGroup] {
+        sessionGroups.filter { $0.isActive }
+    }
+
+    /// Gets recent session groups (completed or archived, for history)
+    func recentSessionGroups(limit: Int = 10) -> [SessionGroup] {
+        sessionGroups
+            .filter { !$0.isActive }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    /// Gets all session groups sorted by last activity
+    func allSessionGroupsSortedByActivity() -> [SessionGroup] {
+        sessionGroups.sorted { $0.lastActivity > $1.lastActivity }
+    }
+
+    /// Clears all session groups
+    func clearSessionGroups() {
+        sessionGroups.removeAll()
+        saveSessionGroups()
+    }
+
+    /// Clears completed/archived session groups only
+    func clearCompletedSessionGroups() {
+        sessionGroups.removeAll { !$0.isActive }
+        saveSessionGroups()
     }
 }

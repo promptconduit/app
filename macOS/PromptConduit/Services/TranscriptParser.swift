@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Type of message in a transcript
 enum TranscriptMessageType: String, Codable {
@@ -210,13 +211,13 @@ class TranscriptParser {
     // MARK: - File Hash
 
     /// Compute SHA256 hash of a file for change detection
+    /// Uses CryptoKit SHA256 for stable hashes across app launches
     func computeFileHash(_ path: String) -> String? {
         guard let data = FileManager.default.contents(atPath: path) else {
             return nil
         }
 
-        // Simple hash using data's hashValue - good enough for change detection
-        let hash = data.hashValue
-        return String(format: "%08x", hash)
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 }
