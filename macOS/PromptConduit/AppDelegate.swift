@@ -26,6 +26,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize hook notification service for CLI hook events
         HookNotificationService.shared.startListening()
 
+        // Archive stale session groups from previous sessions that no longer have running processes
+        SettingsService.shared.archiveStaleSessionGroups()
+
         // Hide dock icon (menu bar app only)
         NSApp.setActivationPolicy(.accessory)
     }

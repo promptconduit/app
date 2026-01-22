@@ -541,4 +541,103 @@ class SettingsService: ObservableObject {
         sessionGroups.removeAll { !$0.isActive }
         saveSessionGroups()
     }
+
+    /// Archives stale session groups that have no running Claude processes
+    /// Call this on app launch to clean up groups left over from previous sessions
+    func archiveStaleSessionGroups() {
+        let activeGroups = activeSessionGroups()
+        guard !activeGroups.isEmpty else { return }
+
+        // Get all running Claude process working directories
+        let runningDirectories = getRunningClaudeDirectories()
+
+        var archivedCount = 0
+        for group in activeGroups {
+            // Check if any of the group's repo paths have a running Claude process
+            let hasRunningProcess = group.repoPaths.contains { repoPath in
+                runningDirectories.contains(repoPath)
+            }
+
+            if !hasRunningProcess {
+                archiveSessionGroup(group.id)
+                archivedCount += 1
+            }
+        }
+
+        if archivedCount > 0 {
+            print("[SettingsService] Archived \(archivedCount) stale session groups on startup")
+        }
+    }
+
+    /// Gets working directories of all running Claude processes
+    private func getRunningClaudeDirectories() -> Set<String> {
+        var directories = Set<String>()
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/ps")
+        task.arguments = ["-eo", "pid,command"]
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+
+        do {
+            try task.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            task.waitUntilExit()
+
+            guard let output = String(data: data, encoding: .utf8) else { return directories }
+
+            // Find Claude processes
+            for line in output.components(separatedBy: "\n") {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty,
+                      (trimmed.contains("/claude ") || trimmed.hasSuffix("/claude")),
+                      !trimmed.contains("--chrome-native-host"),
+                      !trimmed.contains("--claude-in-chrome-mcp") else { continue }
+
+                let components = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+                guard let pidString = components.first,
+                      let pid = Int32(pidString) else { continue }
+
+                // Get working directory for this process
+                if let cwd = getProcessWorkingDirectory(pid) {
+                    directories.insert(cwd)
+                }
+            }
+        } catch {
+            // Process lookup failed - return empty set
+        }
+
+        return directories
+    }
+
+    /// Gets the working directory of a process using lsof
+    private func getProcessWorkingDirectory(_ pid: Int32) -> String? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        task.arguments = ["-p", String(pid), "-Fn", "-a", "-d", "cwd"]
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+
+        do {
+            try task.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            task.waitUntilExit()
+
+            guard let output = String(data: data, encoding: .utf8) else { return nil }
+
+            for line in output.components(separatedBy: "\n") {
+                if line.hasPrefix("n") && line.count > 1 {
+                    return String(line.dropFirst())
+                }
+            }
+        } catch {
+            // lsof failed
+        }
+
+        return nil
+    }
 }
