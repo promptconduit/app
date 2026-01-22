@@ -35,15 +35,6 @@ playground.xcworkspace
 *.app
 *.ipa
 
-# Tauri
-tauri/src-tauri/target/
-tauri/node_modules/
-tauri/dist/
-
-# Rust
-Cargo.lock
-*.rs.bk
-
 # Node
 node_modules/
 npm-debug.log*

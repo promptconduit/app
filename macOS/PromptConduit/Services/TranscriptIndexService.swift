@@ -248,6 +248,7 @@ class TranscriptIndexService: ObservableObject {
         try? database.deleteMessagesForSession(file.sessionId)
 
         var indexedCount = 0
+        let repeatTracker = RepeatTracker.shared
 
         for message in messages {
             // Preprocess and embed
@@ -258,7 +259,7 @@ class TranscriptIndexService: ObservableObject {
 
             // Store in database
             do {
-                try database.insertMessage(
+                let messageId = try database.insertMessageReturningId(
                     sessionId: message.sessionId,
                     messageUuid: message.id,
                     messageType: message.type.rawValue,
@@ -267,7 +268,19 @@ class TranscriptIndexService: ObservableObject {
                     repoPath: message.repoPath,
                     timestamp: message.timestamp
                 )
+
                 indexedCount += 1
+
+                // Notify RepeatTracker for user messages only
+                if message.type == .user {
+                    repeatTracker.onMessageIndexed(
+                        messageId: messageId,
+                        content: message.content,
+                        embedding: embedding,
+                        repoPath: message.repoPath,
+                        timestamp: message.timestamp
+                    )
+                }
             } catch {
                 // Log but continue
                 print("Failed to index message: \(error)")

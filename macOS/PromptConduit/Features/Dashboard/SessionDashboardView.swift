@@ -34,11 +34,19 @@ enum DashboardSearchMode: String, CaseIterable {
     case skills = "Skills"
 }
 
+/// Sort options for skills
+enum SkillSortOption: String, CaseIterable {
+    case name = "Name"
+    case mostUsed = "Most Used"
+    case recentlyUsed = "Recently Used"
+}
+
 struct SessionDashboardView: View {
     @StateObject private var discovery = ClaudeSessionDiscovery.shared
     @StateObject private var indexService = TranscriptIndexService.shared
     @StateObject private var patternService = PatternDetectionService.shared
     @StateObject private var commandsService = SlashCommandsService.shared
+    @StateObject private var skillUsageService = SkillUsageService.shared
     @State private var selectedSession: DiscoveredSession?
     @State private var searchText: String = ""
     @State private var searchMode: DashboardSearchMode = .sessions
@@ -49,6 +57,7 @@ struct SessionDashboardView: View {
     @State private var showSaveSkillSheet = false
     @State private var showDeleteSkillConfirmation = false
     @State private var savedSkillPath: String?
+    @State private var skillSortOption: SkillSortOption = .name
 
     let onResumeSession: (DiscoveredSession) -> Void
     let onClose: () -> Void
@@ -505,13 +514,40 @@ struct SessionDashboardView: View {
     // MARK: - Skills Content
 
     private var filteredSkills: [SlashCommand] {
+        var skills: [SlashCommand]
         if searchText.isEmpty {
-            return commandsService.commands
+            skills = commandsService.commands
+        } else {
+            skills = commandsService.commands.filter {
+                $0.name.localizedCaseInsensitiveContains(searchText) ||
+                ($0.description?.localizedCaseInsensitiveContains(searchText) ?? false)
+            }
         }
-        return commandsService.commands.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            ($0.description?.localizedCaseInsensitiveContains(searchText) ?? false)
+
+        // Sort based on selected option
+        switch skillSortOption {
+        case .name:
+            return skills.sorted { $0.name.lowercased() < $1.name.lowercased() }
+
+        case .mostUsed:
+            return skills.sorted { skill1, skill2 in
+                let usage1 = skillUsageService.getUsage(for: skill1.name)?.invocationCount ?? 0
+                let usage2 = skillUsageService.getUsage(for: skill2.name)?.invocationCount ?? 0
+                return usage1 > usage2
+            }
+
+        case .recentlyUsed:
+            return skills.sorted { skill1, skill2 in
+                let date1 = skillUsageService.getUsage(for: skill1.name)?.lastUsedAt ?? .distantPast
+                let date2 = skillUsageService.getUsage(for: skill2.name)?.lastUsedAt ?? .distantPast
+                return date1 > date2
+            }
         }
+    }
+
+    /// Get usage stats for a skill
+    private func usageForSkill(_ skill: SlashCommand) -> SkillUsageStats? {
+        skillUsageService.getUsage(for: skill.name)
     }
 
     private var skillsContent: some View {
@@ -563,13 +599,33 @@ struct SessionDashboardView: View {
             } else {
                 // Skills list
                 VStack(spacing: 8) {
-                    // Header with count and refresh
+                    // Header with count, sort, and refresh
                     HStack {
                         Text("\(commandsService.commands.count) skills")
                             .font(.system(size: 11))
                             .foregroundColor(DashboardTokens.textMuted)
 
                         Spacer()
+
+                        // Sort picker
+                        Picker("Sort", selection: $skillSortOption) {
+                            ForEach(SkillSortOption.allCases, id: \.self) { option in
+                                Text(option.rawValue).tag(option)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: 100)
+
+                        // Scan for usage button
+                        Button(action: { skillUsageService.scanForUsage() }) {
+                            Image(systemName: skillUsageService.isScanning ? "hourglass" : "chart.bar")
+                                .font(.system(size: 11))
+                                .foregroundColor(DashboardTokens.accentPurple)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Scan for skill usage")
+                        .disabled(skillUsageService.isScanning)
 
                         Button(action: { commandsService.reload() }) {
                             Image(systemName: "arrow.clockwise")
@@ -591,6 +647,7 @@ struct SessionDashboardView: View {
                                     SkillRow(
                                         skill: skill,
                                         isSelected: selectedSkill?.id == skill.id,
+                                        usageStats: usageForSkill(skill),
                                         onSelect: { selectSkill(skill) }
                                     )
                                 }
@@ -607,6 +664,7 @@ struct SessionDashboardView: View {
                                         SkillRow(
                                             skill: skill,
                                             isSelected: selectedSkill?.id == skill.id,
+                                            usageStats: usageForSkill(skill),
                                             onSelect: { selectSkill(skill) }
                                         )
                                     }
@@ -717,6 +775,9 @@ struct SessionDashboardView: View {
             // Content
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    // Usage stats section
+                    skillUsageSection(skill)
+
                     // Metadata section
                     if skill.allowedTools != nil || skill.argumentHint != nil {
                         skillMetadataSection(skill)
@@ -822,6 +883,74 @@ struct SessionDashboardView: View {
             .padding(12)
             .background(DashboardTokens.backgroundCard)
             .cornerRadius(8)
+        }
+    }
+
+    private func skillUsageSection(_ skill: SlashCommand) -> some View {
+        let stats = usageForSkill(skill)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Usage Statistics")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(DashboardTokens.textSecondary)
+
+            HStack(spacing: 24) {
+                // Invocation count
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Times Used")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(DashboardTokens.textMuted)
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "chart.bar.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(DashboardTokens.accentPurple)
+                        Text("\(stats?.invocationCount ?? 0)")
+                            .font(.system(size: 16, weight: .semibold).monospacedDigit())
+                            .foregroundColor(DashboardTokens.textPrimary)
+                    }
+                }
+
+                // Last used
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Last Used")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(DashboardTokens.textMuted)
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 12))
+                            .foregroundColor(DashboardTokens.accentCyan)
+                        Text(stats?.formattedLastUsed ?? "Never")
+                            .font(.system(size: 13))
+                            .foregroundColor(DashboardTokens.textPrimary)
+                    }
+                }
+
+                Spacer()
+
+                // Scan button
+                if stats == nil || stats?.invocationCount == 0 {
+                    Button(action: { skillUsageService.scanForUsage() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Scan for Usage")
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(DashboardTokens.accentPurple.opacity(0.15))
+                        .foregroundColor(DashboardTokens.accentPurple)
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(skillUsageService.isScanning)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DashboardTokens.backgroundCard)
+            .cornerRadius(10)
         }
     }
 
@@ -1718,6 +1847,7 @@ struct SkillSectionHeader: View {
 struct SkillRow: View {
     let skill: SlashCommand
     let isSelected: Bool
+    var usageStats: SkillUsageStats?
     let onSelect: () -> Void
 
     @State private var isHovered = false
@@ -1747,6 +1877,21 @@ struct SkillRow: View {
                                     .opacity(0.15)
                             )
                             .cornerRadius(4)
+
+                        // Usage count badge
+                        if let stats = usageStats, stats.invocationCount > 0 {
+                            HStack(spacing: 2) {
+                                Image(systemName: "chart.bar.fill")
+                                    .font(.system(size: 8))
+                                Text("\(stats.invocationCount)")
+                                    .font(.system(size: 9, weight: .medium).monospacedDigit())
+                            }
+                            .foregroundColor(DashboardTokens.textMuted)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(DashboardTokens.backgroundCard)
+                            .cornerRadius(4)
+                        }
                     }
 
                     if let description = skill.description {
@@ -1758,6 +1903,13 @@ struct SkillRow: View {
                 }
 
                 Spacer()
+
+                // Last used indicator
+                if let stats = usageStats, let lastUsed = stats.lastUsedAt {
+                    Text(formatRelativeDate(lastUsed))
+                        .font(.system(size: 10))
+                        .foregroundColor(DashboardTokens.textMuted)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -1769,5 +1921,11 @@ struct SkillRow: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+    }
+
+    private func formatRelativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }

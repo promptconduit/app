@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		039662B11E6F3E36DFCBAD21 /* SaveSkillSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008C4ED842DB2708BBA76874 /* SaveSkillSheet.swift */; };
+		A1B2C3D4E5F6A1B2C3D4E5A1 /* RepeatTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A1B2C3D4E5F1 /* RepeatTracker.swift */; };
+		A1B2C3D4E5F6A1B2C3D4E5A2 /* PatternNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A1B2C3D4E5F2 /* PatternNotificationService.swift */; };
+		A1B2C3D4E5F6A1B2C3D4E5A3 /* SkillUsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A1B2C3D4E5F3 /* SkillUsageService.swift */; };
 		04ED0B71263511058262BE8A /* TerminalOutputMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39D0C878325B21553F2FA55A /* TerminalOutputMonitor.swift */; };
 		05A3AECF2D14572CFFD37CE1 /* PTYSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E0E605902CC4527F31B7CC2 /* PTYSession.swift */; };
 		09E21C20031C6E2DDE1BEFCC /* TerminalSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 199C59B522537F6E55F7C7FC /* TerminalSessionManager.swift */; };
@@ -113,6 +116,9 @@
 		880D50CD698F8D818F314D36 /* TranscriptParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptParser.swift; sourceTree = "<group>"; };
 		8AFDA1DAFE542BFD87056608 /* SettingsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsService.swift; sourceTree = "<group>"; };
 		8EE5B376EB05B0E9B6E7AE42 /* PTYSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYSessionTests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6A1B2C3D4E5F1 /* RepeatTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepeatTracker.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6A1B2C3D4E5F2 /* PatternNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternNotificationService.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6A1B2C3D4E5F3 /* SkillUsageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillUsageService.swift; sourceTree = "<group>"; };
 		90C91BBADAC7C1DACF33E4BE /* TranscriptIndexDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptIndexDatabase.swift; sourceTree = "<group>"; };
 		93379B0E9848F747EB6489FF /* SessionHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistory.swift; sourceTree = "<group>"; };
 		9353377F0E90986D3B597935 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -205,10 +211,13 @@
 				5326D3178EE1608E20C3E6CB /* ImageAttachmentService.swift */,
 				EACBD1049D1F118A4A59672F /* NotificationService.swift */,
 				DFC767C5FB2095543587F6A0 /* PatternDetectionService.swift */,
+				A1B2C3D4E5F6A1B2C3D4E5F2 /* PatternNotificationService.swift */,
 				0EF8F29E08C009F428BAD1A1 /* PatternSkillService.swift */,
 				28E249FE84141C631CAA2DF2 /* ProcessDetectionService.swift */,
+				A1B2C3D4E5F6A1B2C3D4E5F1 /* RepeatTracker.swift */,
 				591B5119DA203ADF1D0530BA /* SessionTitleCache.swift */,
 				8AFDA1DAFE542BFD87056608 /* SettingsService.swift */,
+				A1B2C3D4E5F6A1B2C3D4E5F3 /* SkillUsageService.swift */,
 				AF8BDAA52F7C52621E8DA50B /* SlashCommandsService.swift */,
 				199C59B522537F6E55F7C7FC /* TerminalSessionManager.swift */,
 				90C91BBADAC7C1DACF33E4BE /* TranscriptIndexDatabase.swift */,
@@ -434,9 +443,11 @@
 				F1AD359EBC54ED462C348466 /* OutputParser.swift in Sources */,
 				05A3AECF2D14572CFFD37CE1 /* PTYSession.swift in Sources */,
 				9D4F9AF3A8E683773EE4911A /* PatternDetectionService.swift in Sources */,
+				A1B2C3D4E5F6A1B2C3D4E5A2 /* PatternNotificationService.swift in Sources */,
 				5CCDC1D9833E0630F1D17123 /* PatternSkillService.swift in Sources */,
 				A2742FBCF423780F362835BD /* ProcessDetectionService.swift in Sources */,
 				916E014FC116CDF3596EA407 /* PromptConduitApp.swift in Sources */,
+				A1B2C3D4E5F6A1B2C3D4E5A1 /* RepeatTracker.swift in Sources */,
 				8851834F88CBBAD7601FA1EA /* RepositoriesView.swift in Sources */,
 				61462559AA7E7FA28451DE41 /* RepositoryTemplate.swift in Sources */,
 				039662B11E6F3E36DFCBAD21 /* SaveSkillSheet.swift in Sources */,
@@ -449,6 +460,7 @@
 				74820B13BCD0C4059F39DE4A /* SessionTitleCache.swift in Sources */,
 				DB6E622451AD0A224C2DBAC2 /* SettingsService.swift in Sources */,
 				3871A6B448C1D5DCC7CD8B1D /* SettingsView.swift in Sources */,
+				A1B2C3D4E5F6A1B2C3D4E5A3 /* SkillUsageService.swift in Sources */,
 				D77341296B4C490111B91889 /* SlashCommandsService.swift in Sources */,
 				DF1D90BB5C76C65461386DD5 /* TerminalCellView.swift in Sources */,
 				04ED0B71263511058262BE8A /* TerminalOutputMonitor.swift in Sources */,

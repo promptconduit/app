@@ -95,13 +95,43 @@ class TranscriptIndexDatabase {
         )
         """
 
+        let createRepeatCandidatesTable = """
+        CREATE TABLE IF NOT EXISTS repeat_candidates (
+            id TEXT PRIMARY KEY,
+            original_message_id INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            repo_path TEXT NOT NULL,
+            repeat_count INTEGER NOT NULL DEFAULT 1,
+            last_seen_at TEXT NOT NULL,
+            avg_similarity REAL NOT NULL DEFAULT 0.0,
+            dismissed INTEGER NOT NULL DEFAULT 0,
+            dismissed_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (original_message_id) REFERENCES indexed_messages(id)
+        )
+        """
+
+        let createSkillUsageTable = """
+        CREATE TABLE IF NOT EXISTS skill_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_name TEXT NOT NULL UNIQUE,
+            invocation_count INTEGER NOT NULL DEFAULT 0,
+            last_used_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+
         try executeSQL(createMessagesTable)
         try executeSQL(createIndexStateTable)
+        try executeSQL(createRepeatCandidatesTable)
+        try executeSQL(createSkillUsageTable)
 
         // Create indices for faster queries
         try executeSQL("CREATE INDEX IF NOT EXISTS idx_session ON indexed_messages(session_id)")
         try executeSQL("CREATE INDEX IF NOT EXISTS idx_repo ON indexed_messages(repo_path)")
         try executeSQL("CREATE INDEX IF NOT EXISTS idx_type ON indexed_messages(message_type)")
+        try executeSQL("CREATE INDEX IF NOT EXISTS idx_repeat_dismissed ON repeat_candidates(dismissed)")
+        try executeSQL("CREATE INDEX IF NOT EXISTS idx_skill_name ON skill_usage(skill_name)")
     }
 
     private func executeSQL(_ sql: String) throws {
@@ -125,6 +155,27 @@ class TranscriptIndexDatabase {
         repoPath: String,
         timestamp: Date
     ) throws {
+        _ = try insertMessageReturningId(
+            sessionId: sessionId,
+            messageUuid: messageUuid,
+            messageType: messageType,
+            content: content,
+            embedding: embedding,
+            repoPath: repoPath,
+            timestamp: timestamp
+        )
+    }
+
+    /// Insert a new indexed message and return its database ID
+    func insertMessageReturningId(
+        sessionId: String,
+        messageUuid: String,
+        messageType: String,
+        content: String,
+        embedding: [Double],
+        repoPath: String,
+        timestamp: Date
+    ) throws -> Int64 {
         let sql = """
         INSERT OR REPLACE INTO indexed_messages
         (session_id, message_uuid, message_type, content, embedding, repo_path, timestamp)
@@ -156,6 +207,8 @@ class TranscriptIndexDatabase {
             let error = String(cString: sqlite3_errmsg(db))
             throw DatabaseError.insertFailed(error)
         }
+
+        return sqlite3_last_insert_rowid(db)
     }
 
     /// Get a message by ID
@@ -428,5 +481,247 @@ class TranscriptIndexDatabase {
     /// Get the path to the database file
     var databasePath: String {
         return dbPath
+    }
+
+    // MARK: - Repeat Candidates Operations
+
+    /// Save or update a repeat candidate
+    func saveRepeatCandidate(_ candidate: RepeatCandidate) throws {
+        let sql = """
+        INSERT OR REPLACE INTO repeat_candidates
+        (id, original_message_id, content, repo_path, repeat_count, last_seen_at, avg_similarity, dismissed, dismissed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            let error = String(cString: sqlite3_errmsg(db))
+            throw DatabaseError.prepareFailed(error)
+        }
+
+        let lastSeenAtString = dateFormatter.string(from: candidate.lastSeenAt)
+        let dismissedAtString = candidate.dismissedAt.map { dateFormatter.string(from: $0) }
+
+        sqlite3_bind_text(statement, 1, (candidate.id.uuidString as NSString).utf8String, -1, nil)
+        sqlite3_bind_int64(statement, 2, candidate.originalMessageId)
+        sqlite3_bind_text(statement, 3, (candidate.content as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 4, (candidate.repoPath as NSString).utf8String, -1, nil)
+        sqlite3_bind_int(statement, 5, Int32(candidate.repeatCount))
+        sqlite3_bind_text(statement, 6, (lastSeenAtString as NSString).utf8String, -1, nil)
+        sqlite3_bind_double(statement, 7, candidate.avgSimilarity)
+        sqlite3_bind_int(statement, 8, candidate.dismissed ? 1 : 0)
+        if let dismissedAtString = dismissedAtString {
+            sqlite3_bind_text(statement, 9, (dismissedAtString as NSString).utf8String, -1, nil)
+        } else {
+            sqlite3_bind_null(statement, 9)
+        }
+
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            let error = String(cString: sqlite3_errmsg(db))
+            throw DatabaseError.insertFailed(error)
+        }
+    }
+
+    /// Get all repeat candidates
+    func getAllRepeatCandidates() -> [RepeatCandidate] {
+        let sql = "SELECT id, original_message_id, content, repo_path, repeat_count, last_seen_at, avg_similarity, dismissed, dismissed_at FROM repeat_candidates"
+
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return []
+        }
+
+        var candidates: [RepeatCandidate] = []
+
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let candidate = extractRepeatCandidate(from: statement) {
+                candidates.append(candidate)
+            }
+        }
+
+        return candidates
+    }
+
+    /// Get non-dismissed repeat candidates ready to surface
+    func getActiveCandidates(minRepeats: Int = 3) -> [RepeatCandidate] {
+        let sql = """
+        SELECT id, original_message_id, content, repo_path, repeat_count, last_seen_at, avg_similarity, dismissed, dismissed_at
+        FROM repeat_candidates
+        WHERE dismissed = 0 AND repeat_count >= ?
+        ORDER BY repeat_count DESC, last_seen_at DESC
+        """
+
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return []
+        }
+
+        sqlite3_bind_int(statement, 1, Int32(minRepeats))
+
+        var candidates: [RepeatCandidate] = []
+
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let candidate = extractRepeatCandidate(from: statement) {
+                candidates.append(candidate)
+            }
+        }
+
+        return candidates
+    }
+
+    /// Delete a repeat candidate
+    func deleteRepeatCandidate(_ id: UUID) throws {
+        let sql = "DELETE FROM repeat_candidates WHERE id = ?"
+
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            let error = String(cString: sqlite3_errmsg(db))
+            throw DatabaseError.prepareFailed(error)
+        }
+
+        sqlite3_bind_text(statement, 1, (id.uuidString as NSString).utf8String, -1, nil)
+
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            let error = String(cString: sqlite3_errmsg(db))
+            throw DatabaseError.executeFailed(error)
+        }
+    }
+
+    private func extractRepeatCandidate(from statement: OpaquePointer?) -> RepeatCandidate? {
+        guard let statement = statement else { return nil }
+
+        guard let idPtr = sqlite3_column_text(statement, 0),
+              let contentPtr = sqlite3_column_text(statement, 2),
+              let repoPathPtr = sqlite3_column_text(statement, 3),
+              let lastSeenAtPtr = sqlite3_column_text(statement, 5) else {
+            return nil
+        }
+
+        guard let id = UUID(uuidString: String(cString: idPtr)) else {
+            return nil
+        }
+
+        let originalMessageId = sqlite3_column_int64(statement, 1)
+        let content = String(cString: contentPtr)
+        let repoPath = String(cString: repoPathPtr)
+        let repeatCount = Int(sqlite3_column_int(statement, 4))
+        let lastSeenAtString = String(cString: lastSeenAtPtr)
+        let lastSeenAt = dateFormatter.date(from: lastSeenAtString) ?? Date()
+        let avgSimilarity = sqlite3_column_double(statement, 6)
+        let dismissed = sqlite3_column_int(statement, 7) != 0
+
+        var dismissedAt: Date?
+        if let dismissedAtPtr = sqlite3_column_text(statement, 8) {
+            let dismissedAtString = String(cString: dismissedAtPtr)
+            dismissedAt = dateFormatter.date(from: dismissedAtString)
+        }
+
+        return RepeatCandidate(
+            id: id,
+            originalMessageId: originalMessageId,
+            content: content,
+            repoPath: repoPath,
+            repeatCount: repeatCount,
+            lastSeenAt: lastSeenAt,
+            avgSimilarity: avgSimilarity,
+            dismissed: dismissed,
+            dismissedAt: dismissedAt
+        )
+    }
+
+    // MARK: - Skill Usage Operations
+
+    /// Record a skill invocation
+    func recordSkillUsage(skillName: String) throws {
+        let sql = """
+        INSERT INTO skill_usage (skill_name, invocation_count, last_used_at)
+        VALUES (?, 1, ?)
+        ON CONFLICT(skill_name) DO UPDATE SET
+            invocation_count = invocation_count + 1,
+            last_used_at = excluded.last_used_at
+        """
+
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            let error = String(cString: sqlite3_errmsg(db))
+            throw DatabaseError.prepareFailed(error)
+        }
+
+        let nowString = dateFormatter.string(from: Date())
+
+        sqlite3_bind_text(statement, 1, (skillName as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 2, (nowString as NSString).utf8String, -1, nil)
+
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            let error = String(cString: sqlite3_errmsg(db))
+            throw DatabaseError.insertFailed(error)
+        }
+    }
+
+    /// Get usage stats for a skill
+    func getSkillUsage(skillName: String) -> (invocationCount: Int, lastUsedAt: Date?)? {
+        let sql = "SELECT invocation_count, last_used_at FROM skill_usage WHERE skill_name = ?"
+
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return nil
+        }
+
+        sqlite3_bind_text(statement, 1, (skillName as NSString).utf8String, -1, nil)
+
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            return nil
+        }
+
+        let invocationCount = Int(sqlite3_column_int(statement, 0))
+        var lastUsedAt: Date?
+        if let lastUsedAtPtr = sqlite3_column_text(statement, 1) {
+            let lastUsedAtString = String(cString: lastUsedAtPtr)
+            lastUsedAt = dateFormatter.date(from: lastUsedAtString)
+        }
+
+        return (invocationCount: invocationCount, lastUsedAt: lastUsedAt)
+    }
+
+    /// Get all skill usage stats
+    func getAllSkillUsage() -> [(skillName: String, invocationCount: Int, lastUsedAt: Date?)] {
+        let sql = "SELECT skill_name, invocation_count, last_used_at FROM skill_usage ORDER BY invocation_count DESC"
+
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return []
+        }
+
+        var results: [(skillName: String, invocationCount: Int, lastUsedAt: Date?)] = []
+
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let skillNamePtr = sqlite3_column_text(statement, 0) else { continue }
+
+            let skillName = String(cString: skillNamePtr)
+            let invocationCount = Int(sqlite3_column_int(statement, 1))
+            var lastUsedAt: Date?
+            if let lastUsedAtPtr = sqlite3_column_text(statement, 2) {
+                let lastUsedAtString = String(cString: lastUsedAtPtr)
+                lastUsedAt = dateFormatter.date(from: lastUsedAtString)
+            }
+
+            results.append((skillName: skillName, invocationCount: invocationCount, lastUsedAt: lastUsedAt))
+        }
+
+        return results
     }
 }
