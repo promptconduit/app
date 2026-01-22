@@ -364,33 +364,14 @@ struct MultiTerminalGridView: View {
         // Mark as sent BEFORE sending to prevent re-entry from state updates
         terminalManager.markPromptSent(sessionId)
 
-        // Small delay to ensure Claude is fully ready
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            print("[MultiTerminalGrid] Sending trimmed prompt: '\(trimmedPrompt)'")
-            terminal.send(txt: trimmedPrompt)
-
-            // Simulate actual Enter key press using NSEvent
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                print("[MultiTerminalGrid] Simulating Enter key press")
-                if let event = NSEvent.keyEvent(
-                    with: .keyDown,
-                    location: .zero,
-                    modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: terminal.window?.windowNumber ?? 0,
-                    context: nil,
-                    characters: "\r",
-                    charactersIgnoringModifiers: "\r",
-                    isARepeat: false,
-                    keyCode: 36  // Enter key code
-                ) {
-                    terminal.keyDown(with: event)
-                    print("[MultiTerminalGrid] Enter key event sent")
-                } else {
-                    print("[MultiTerminalGrid] Failed to create Enter key event, falling back to byte send")
-                    terminal.send([13])
-                }
-            }
+        // Longer delay to ensure Claude's TUI is fully ready for input
+        // Claude Code needs time to initialize its input field after showing welcome screen
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            print("[MultiTerminalGrid] Sending prompt with Enter: '\(trimmedPrompt)'")
+            // Send prompt text followed by carriage return (Enter)
+            // Sending together ensures they arrive as a unit
+            terminal.send(txt: trimmedPrompt + "\r")
+            print("[MultiTerminalGrid] Prompt with Enter sent")
         }
     }
 }
