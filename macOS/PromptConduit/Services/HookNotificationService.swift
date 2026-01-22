@@ -21,10 +21,10 @@ private func debugLog(_ message: String) {
 class HookNotificationService: ObservableObject {
     static let shared = HookNotificationService()
 
-    /// Path where CLI writes hook events
+    /// Path where app hooks write events (separate from CLI's hook-events)
     private let hookEventsPath = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".promptconduit")
-        .appendingPathComponent("hook-events")
+        .appendingPathComponent("app-events")
 
     /// File handle for monitoring
     private var fileHandle: FileHandle?

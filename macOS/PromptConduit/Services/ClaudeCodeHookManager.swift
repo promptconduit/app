@@ -16,10 +16,11 @@ class ClaudeCodeHookManager {
         .appendingPathComponent(".claude")
         .appendingPathComponent("settings.json")
 
-    /// Hook events file path (where hooks write events)
+    /// Hook events file path (where app hooks write events)
+    /// Separate from CLI's hook-events to keep them independent
     private let hookEventsPath = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".promptconduit")
-        .appendingPathComponent("hook-events")
+        .appendingPathComponent("app-events")
 
     /// Marker comment to identify PromptConduit hooks
     private let hookMarker = "PromptConduit-managed"
