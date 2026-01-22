@@ -166,11 +166,18 @@ class TerminalSessionManager: ObservableObject {
             }
         }
 
-        // Try exact cwd match
-        findLog("  Trying exact cwd match...")
+        // Try exact cwd match - prefer sessions with pending prompts (newer sessions)
+        findLog("  Trying exact cwd match (prefer sessions with pending prompt)...")
         for (i, session) in sessions.enumerated() {
-            findLog("    [\(i)] \(session.repoName): wd=\(session.workingDirectory) vs cwd=\(cwd) → match=\(session.workingDirectory == cwd)")
+            let hasPending = session.pendingPrompt != nil && !session.promptSent
+            findLog("    [\(i)] \(session.repoName): wd=\(session.workingDirectory) vs cwd=\(cwd) → match=\(session.workingDirectory == cwd), hasPendingPrompt=\(hasPending)")
         }
+        // First try to find session with pending prompt (newly created session)
+        if let index = sessions.firstIndex(where: { $0.workingDirectory == cwd && $0.pendingPrompt != nil && !$0.promptSent }) {
+            findLog("  MATCHED by exact cwd WITH pending prompt at index \(index): \(sessions[index].repoName)")
+            return index
+        }
+        // Fall back to any session with matching cwd
         if let index = sessions.firstIndex(where: { $0.workingDirectory == cwd }) {
             findLog("  MATCHED by exact cwd at index \(index): \(sessions[index].repoName)")
             return index
@@ -178,12 +185,19 @@ class TerminalSessionManager: ObservableObject {
 
         // Try prefix match: hook cwd might be a subdirectory of the repo
         // e.g., session launched for /repo/app but Claude runs in /repo/app/macOS
-        findLog("  Trying prefix match (cwd is subdirectory of repo)...")
+        findLog("  Trying prefix match (cwd is subdirectory of repo, prefer pending prompt)...")
         for (i, session) in sessions.enumerated() {
             let repoPath = session.workingDirectory
             let isSubdir = cwd.hasPrefix(repoPath + "/") || cwd == repoPath
-            findLog("    [\(i)] \(session.repoName): cwd.hasPrefix(\(repoPath)/) → \(isSubdir)")
+            let hasPending = session.pendingPrompt != nil && !session.promptSent
+            findLog("    [\(i)] \(session.repoName): cwd.hasPrefix(\(repoPath)/) → \(isSubdir), hasPendingPrompt=\(hasPending)")
         }
+        // First try to find session with pending prompt
+        if let index = sessions.firstIndex(where: { cwd.hasPrefix($0.workingDirectory + "/") && $0.pendingPrompt != nil && !$0.promptSent }) {
+            findLog("  MATCHED by prefix WITH pending prompt at index \(index): \(sessions[index].repoName)")
+            return index
+        }
+        // Fall back to any session with matching prefix
         if let index = sessions.firstIndex(where: { cwd.hasPrefix($0.workingDirectory + "/") }) {
             findLog("  MATCHED by prefix (subdirectory) at index \(index): \(sessions[index].repoName)")
             return index
