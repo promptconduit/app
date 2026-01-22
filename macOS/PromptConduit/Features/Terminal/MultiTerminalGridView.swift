@@ -108,10 +108,10 @@ struct MultiTerminalGridView: View {
                 }
             }
         }
-        .onDisappear {
-            // Clean up all sessions in this group when the view disappears
-            terminalManager.terminateGroup(groupId)
-        }
+        // NOTE: We do NOT terminate sessions on onDisappear because the user may be
+        // switching between groups in the dashboard. Sessions should only be terminated
+        // when the user explicitly clicks "Close" (via onClose callback) or when the
+        // dashboard window itself is closed.
         .onReceive(NotificationCenter.default.publisher(for: .focusTerminalSession)) { notification in
             handleFocusNotification(notification)
         }
@@ -162,7 +162,22 @@ struct MultiTerminalGridView: View {
     // MARK: - Session Management
 
     private func setupSessions() {
-        // Create sessions for each repository
+        // Check if sessions already exist for this group (user switched tabs and came back)
+        let existingSessions = terminalManager.sessions(for: groupId)
+        if !existingSessions.isEmpty {
+            // Reuse existing sessions - don't create new ones
+            sessionIds = existingSessions.map { $0.id }
+            if let first = sessionIds.first {
+                focusedSessionId = first
+            }
+            // Mark as ready since sessions already exist
+            withAnimation(.easeOut(duration: 0.3)) {
+                isInitializing = false
+            }
+            return
+        }
+
+        // Create sessions for each repository (first time setup)
         for repoPath in repositories {
             let sessionId = UUID()
             let repoName = URL(fileURLWithPath: repoPath).lastPathComponent
