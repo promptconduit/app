@@ -41,8 +41,14 @@ class ClaudeCodeHookManager {
         for event in managedHookEvents {
             guard let eventHooks = hooks[event] as? [[String: Any]] else { return false }
             let hasOurHook = eventHooks.contains { hook in
-                if let command = hook["command"] as? String {
-                    return command.contains(hookMarker)
+                // Check nested structure: { "hooks": [{ "command": "..." }] }
+                if let innerHooks = hook["hooks"] as? [[String: Any]] {
+                    return innerHooks.contains { innerHook in
+                        if let command = innerHook["command"] as? String {
+                            return command.contains(hookMarker)
+                        }
+                        return false
+                    }
                 }
                 return false
             }
@@ -80,17 +86,28 @@ class ClaudeCodeHookManager {
 
             // Remove any existing PromptConduit hooks (to update)
             eventHooks.removeAll { hook in
-                if let command = hook["command"] as? String {
-                    return command.contains(hookMarker)
+                // Check nested structure: { "hooks": [{ "command": "..." }] }
+                if let innerHooks = hook["hooks"] as? [[String: Any]] {
+                    return innerHooks.contains { innerHook in
+                        if let command = innerHook["command"] as? String {
+                            return command.contains(hookMarker)
+                        }
+                        return false
+                    }
                 }
                 return false
             }
 
             // Add our hook - a simple shell command that appends JSON to the events file
+            // Claude Code expects: { "hooks": [{ "type": "command", "command": "..." }] }
             let hookCommand = makeHookCommand(for: event)
             let newHook: [String: Any] = [
-                "type": "command",
-                "command": hookCommand
+                "hooks": [
+                    [
+                        "type": "command",
+                        "command": hookCommand
+                    ]
+                ]
             ]
             eventHooks.append(newHook)
 
@@ -120,8 +137,14 @@ class ClaudeCodeHookManager {
             guard var eventHooks = hooks[event] as? [[String: Any]] else { continue }
 
             eventHooks.removeAll { hook in
-                if let command = hook["command"] as? String {
-                    return command.contains(hookMarker)
+                // Check nested structure: { "hooks": [{ "command": "..." }] }
+                if let innerHooks = hook["hooks"] as? [[String: Any]] {
+                    return innerHooks.contains { innerHook in
+                        if let command = innerHook["command"] as? String {
+                            return command.contains(hookMarker)
+                        }
+                        return false
+                    }
                 }
                 return false
             }
