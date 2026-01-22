@@ -1582,6 +1582,7 @@ struct UnifiedDashboardView: View {
                         selectedGroupId = nil
                     }
                 )
+                .id(group.id)  // Force view recreation when switching groups
             } else {
                 // Show completion state
                 completedGroupView(group)

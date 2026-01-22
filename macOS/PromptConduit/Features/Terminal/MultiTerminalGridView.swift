@@ -24,6 +24,7 @@ struct MultiTerminalGridView: View {
     @ObservedObject private var terminalManager = TerminalSessionManager.shared
     @State private var focusedSessionId: UUID?
     @State private var sessionIds: [UUID] = []
+    @State private var isInitializing = true
 
     // Deep link highlight state
     @State private var highlightedSessionId: UUID?
@@ -34,51 +35,78 @@ struct MultiTerminalGridView: View {
         layout.dimensions(for: repositories.count)
     }
 
+    /// Count of sessions that have a terminal view registered (meaning they've started rendering)
+    private var readySessionCount: Int {
+        sessionIds.filter { terminalManager.getTerminalView(for: $0) != nil }.count
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Terminal grid (header removed - redundant with group header)
-            GeometryReader { geometry in
-                let cellWidth = (geometry.size.width - GridTokens.gridSpacing * CGFloat(dimensions.cols - 1)) / CGFloat(dimensions.cols)
-                let cellHeight = (geometry.size.height - GridTokens.gridSpacing * CGFloat(dimensions.rows - 1)) / CGFloat(dimensions.rows)
+        ZStack {
+            VStack(spacing: 0) {
+                // Terminal grid (header removed - redundant with group header)
+                GeometryReader { geometry in
+                    let cellWidth = (geometry.size.width - GridTokens.gridSpacing * CGFloat(dimensions.cols - 1)) / CGFloat(dimensions.cols)
+                    let cellHeight = (geometry.size.height - GridTokens.gridSpacing * CGFloat(dimensions.rows - 1)) / CGFloat(dimensions.rows)
 
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: GridTokens.gridSpacing), count: dimensions.cols),
-                    spacing: GridTokens.gridSpacing
-                ) {
-                    ForEach(Array(zip(sessionIds.indices, sessionIds)), id: \.1) { index, sessionId in
-                        if index < repositories.count {
-                            let repoPath = repositories[index]
-                            let repoName = URL(fileURLWithPath: repoPath).lastPathComponent
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: GridTokens.gridSpacing), count: dimensions.cols),
+                        spacing: GridTokens.gridSpacing
+                    ) {
+                        ForEach(Array(zip(sessionIds.indices, sessionIds)), id: \.1) { index, sessionId in
+                            if index < repositories.count {
+                                let repoPath = repositories[index]
+                                let repoName = URL(fileURLWithPath: repoPath).lastPathComponent
 
-                            TerminalCellView(
-                                sessionId: sessionId,
-                                repoName: repoName,
-                                workingDirectory: repoPath,
-                                isFocused: focusedSessionId == sessionId,
-                                onFocus: {
-                                    focusedSessionId = sessionId
-                                    focusTerminal(sessionId)
-                                },
-                                onTerminated: {
-                                    terminalManager.markTerminated(sessionId)
-                                },
-                                onTerminalReady: { terminal in
-                                    // Store terminal view in the single source of truth
-                                    terminalManager.updateTerminalView(sessionId, terminalView: terminal)
-                                },
-                                onClaudeReady: nil  // Prompt sending is now triggered by hook events via state observation
-                            )
-                            .frame(width: cellWidth, height: cellHeight)
+                                TerminalCellView(
+                                    sessionId: sessionId,
+                                    repoName: repoName,
+                                    workingDirectory: repoPath,
+                                    isFocused: focusedSessionId == sessionId,
+                                    onFocus: {
+                                        focusedSessionId = sessionId
+                                        focusTerminal(sessionId)
+                                    },
+                                    onTerminated: {
+                                        terminalManager.markTerminated(sessionId)
+                                    },
+                                    onTerminalReady: { terminal in
+                                        // Store terminal view in the single source of truth
+                                        terminalManager.updateTerminalView(sessionId, terminalView: terminal)
+                                        // Check if all terminals are ready
+                                        if readySessionCount >= repositories.count {
+                                            withAnimation(.easeOut(duration: 0.3)) {
+                                                isInitializing = false
+                                            }
+                                        }
+                                    },
+                                    onClaudeReady: nil  // Prompt sending is now triggered by hook events via state observation
+                                )
+                                .frame(width: cellWidth, height: cellHeight)
+                            }
                         }
                     }
                 }
             }
+            .background(GridTokens.backgroundPrimary)
+
+            // Loading overlay
+            if isInitializing {
+                loadingOverlay
+            }
         }
-        .background(GridTokens.backgroundPrimary)
         .onAppear {
             setupSessions()
             // Ensure hook service is listening (TerminalSessionManager handles the events)
             HookNotificationService.shared.startListening()
+
+            // Fallback: dismiss loading overlay after 10 seconds even if terminals haven't all reported ready
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                if isInitializing {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isInitializing = false
+                    }
+                }
+            }
         }
         .onDisappear {
             // Clean up all sessions in this group when the view disappears
@@ -109,6 +137,26 @@ struct MultiTerminalGridView: View {
         }
 
         highlightSession(sessionId)
+    }
+
+    // MARK: - Loading Overlay
+
+    private var loadingOverlay: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle(tint: GridTokens.accentCyan))
+                .scaleEffect(1.5)
+
+            Text("Starting Claude sessions...")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(GridTokens.textPrimary)
+
+            Text("\(readySessionCount) of \(repositories.count) ready")
+                .font(.system(size: 12))
+                .foregroundColor(GridTokens.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(GridTokens.backgroundPrimary.opacity(0.9))
     }
 
     // MARK: - Session Management
