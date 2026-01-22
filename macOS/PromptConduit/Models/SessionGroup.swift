@@ -19,6 +19,7 @@ struct SessionGroup: Codable, Identifiable {
     var lastActivity: Date
     var status: SessionGroupStatus      // active, waiting, completed, archived
     var claudeSessionIds: [String: String]  // repoPath -> claudeSessionId mapping
+    var promptSent: Bool                // Track if prompt has been sent to terminals
 
     init(
         id: UUID = UUID(),
@@ -29,7 +30,8 @@ struct SessionGroup: Codable, Identifiable {
         createdAt: Date = Date(),
         lastActivity: Date = Date(),
         status: SessionGroupStatus = .active,
-        claudeSessionIds: [String: String] = [:]
+        claudeSessionIds: [String: String] = [:],
+        promptSent: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -40,6 +42,7 @@ struct SessionGroup: Codable, Identifiable {
         self.lastActivity = lastActivity
         self.status = status
         self.claudeSessionIds = claudeSessionIds
+        self.promptSent = promptSent
     }
 
     // MARK: - Computed Properties
@@ -151,6 +154,12 @@ extension SessionGroup {
     /// Associate a Claude session ID with a repo path
     mutating func setClaudeSessionId(_ sessionId: String, for repoPath: String) {
         claudeSessionIds[repoPath] = sessionId
+        lastActivity = Date()
+    }
+
+    /// Mark that the initial prompt has been sent to terminals
+    mutating func markPromptSent() {
+        promptSent = true
         lastActivity = Date()
     }
 }

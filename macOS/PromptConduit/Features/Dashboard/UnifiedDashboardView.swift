@@ -1572,17 +1572,27 @@ struct UnifiedDashboardView: View {
             // Terminal grid or completion state
             if group.isActive {
                 // Show live terminals
+                // Pass prompt only if not yet sent
+                let promptToSend = group.promptSent ? nil : group.prompt
                 MultiTerminalGridView(
                     groupId: group.id,
                     repositories: group.repoPaths,
                     layout: group.layout,
-                    initialPrompt: nil,  // Prompt already sent
+                    initialPrompt: promptToSend,
                     onClose: {
                         archiveGroup(group.id)
                         selectedGroupId = nil
                     }
                 )
                 .id(group.id)  // Force view recreation when switching groups
+                .onAppear {
+                    // Mark prompt as sent when the grid appears
+                    if !group.promptSent {
+                        settings.updateSessionGroup(id: group.id) { g in
+                            g.markPromptSent()
+                        }
+                    }
+                }
             } else {
                 // Show completion state
                 completedGroupView(group)
