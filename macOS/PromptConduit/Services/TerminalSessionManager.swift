@@ -154,7 +154,8 @@ class TerminalSessionManager: ObservableObject {
         findLog("  sessions count: \(sessions.count)")
 
         // Try Claude session ID first (most reliable)
-        if let sessionId = sessionId {
+        // Only match if sessionId is non-empty (empty strings would match all empty claudeSessionIds)
+        if let sessionId = sessionId, !sessionId.isEmpty {
             findLog("  Trying Claude sessionId match...")
             for (i, session) in sessions.enumerated() {
                 findLog("    [\(i)] \(session.repoName): claudeSessionId=\(session.claudeSessionId ?? "nil")")
@@ -276,8 +277,11 @@ class TerminalSessionManager: ObservableObject {
     // MARK: - Prompt Management (Single Source of Truth)
 
     /// Gets the pending prompt for a session, if any
+    /// Returns nil if prompt was already sent to prevent duplicate sends
     func getPendingPrompt(for sessionId: UUID) -> String? {
         guard let session = sessions.first(where: { $0.id == sessionId }) else { return nil }
+        // Check promptSent to prevent duplicate sends from race conditions
+        guard !session.promptSent else { return nil }
         return session.pendingPrompt
     }
 

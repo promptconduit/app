@@ -155,13 +155,16 @@ class OutputParser {
 
         // Claude Code TUI welcome/idle screen patterns
         // These indicate Claude is on the welcome screen waiting for input
+        // Use simple substrings that survive TUI column fragmentation
         let welcomeScreenPatterns = [
-            "(shift+tab to cycle)",    // Status bar navigation hint
-            "shift+tab to cycle",      // Without parentheses
-            "/status for info",        // Help hint in status area
-            "Tips:",                   // Tips section on welcome screen
+            "shift+tab",               // Part of "(shift+tab to cycle)" status hint
+            "to cycle)",               // End of status hint
+            "/status",                 // Help hint
+            "Tips:",                   // Tips section
             "What can I help",         // Welcome message
             "to get started",          // Welcome message continuation
+            "Welcome back",            // Welcome greeting
+            "Claude Code v",           // Version display on welcome screen
         ]
 
         for pattern in welcomeScreenPatterns {
@@ -373,13 +376,16 @@ extension OutputParser {
         }
 
         // Claude Code TUI welcome/idle screen patterns
+        // Use simple substrings that survive TUI column fragmentation
         let welcomeScreenPatterns = [
-            "(shift+tab to cycle)",
-            "shift+tab to cycle",
-            "/status for info",
+            "shift+tab",
+            "to cycle)",
+            "/status",
             "Tips:",
             "What can I help",
             "to get started",
+            "Welcome back",
+            "Claude Code v",
         ]
 
         for pattern in welcomeScreenPatterns {
