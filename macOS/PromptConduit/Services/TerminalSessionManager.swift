@@ -629,8 +629,12 @@ class TerminalSessionManager: ObservableObject {
 
     /// Terminates all sessions in a group
     func terminateGroup(_ groupId: UUID) {
-        // Guard against double-cleanup - check if group still exists
-        guard sessionGroups.contains(where: { $0.id == groupId }) else {
+        // Guard against double-cleanup - check if any sessions exist with this groupId
+        // Note: We check `sessions` not `sessionGroups` because sessions launched from
+        // the dashboard use SessionGroup IDs from SettingsService, not MultiSessionGroup IDs
+        guard sessions.contains(where: { $0.groupId == groupId }) else {
+            // Also try removing from sessionGroups in case it was created via createSessionGroup
+            sessionGroups.removeAll { $0.id == groupId }
             return
         }
 
@@ -652,9 +656,30 @@ class TerminalSessionManager: ObservableObject {
         }
 
         // Kill all processes
+        let logPath = "/tmp/promptconduit-terminal.log"
+        let logMsg = "[TSM] terminateGroup: groupId=\(groupId.uuidString.prefix(8)), killing \(groupSessions.count) sessions\n"
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            handle.seekToEndOfFile()
+            handle.write(logMsg.data(using: .utf8)!)
+            handle.closeFile()
+        }
+
         for session in groupSessions {
             if let pid = findClaudeProcessPID(workingDirectory: session.workingDirectory) {
+                let killMsg = "[TSM] Killing PID \(pid) for \(session.repoName) at \(session.workingDirectory)\n"
+                if let handle = FileHandle(forWritingAtPath: logPath) {
+                    handle.seekToEndOfFile()
+                    handle.write(killMsg.data(using: .utf8)!)
+                    handle.closeFile()
+                }
                 kill(pid, SIGTERM)
+            } else {
+                let noKillMsg = "[TSM] No Claude process found for \(session.repoName) at \(session.workingDirectory)\n"
+                if let handle = FileHandle(forWritingAtPath: logPath) {
+                    handle.seekToEndOfFile()
+                    handle.write(noKillMsg.data(using: .utf8)!)
+                    handle.closeFile()
+                }
             }
             ProcessDetectionService.shared.unregisterManagedWorkingDirectory(session.workingDirectory)
         }
