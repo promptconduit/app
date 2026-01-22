@@ -200,6 +200,92 @@ class PatternSkillService {
         return repoCounts.max(by: { $0.value < $1.value })?.key
     }
 
+    // MARK: - Quick Save from Notification
+
+    /// Quickly save a repeat candidate as a skill with auto-generated defaults
+    /// - Parameters:
+    ///   - candidate: The repeat candidate to convert
+    ///   - originalMessage: The original indexed message
+    ///   - suggestedName: Pre-suggested skill name
+    ///   - suggestedDescription: Pre-suggested description
+    ///   - suggestedLocation: Pre-suggested save location
+    /// - Returns: Result of the save operation
+    func quickSaveFromCandidate(
+        candidate: RepeatCandidate,
+        originalMessage: IndexedMessage,
+        suggestedName: String,
+        suggestedDescription: String,
+        suggestedLocation: SkillSaveLocation
+    ) -> SkillSaveResult {
+        let filePath = skillPath(
+            name: suggestedName,
+            location: suggestedLocation,
+            projectPath: candidate.repoPath
+        )
+        let directory = (filePath as NSString).deletingLastPathComponent
+
+        // Check if file already exists - generate unique name if so
+        var finalName = suggestedName
+        var finalPath = filePath
+        var counter = 1
+
+        while FileManager.default.fileExists(atPath: finalPath) {
+            finalName = "\(suggestedName)-\(counter)"
+            finalPath = skillPath(
+                name: finalName,
+                location: suggestedLocation,
+                projectPath: candidate.repoPath
+            )
+            counter += 1
+
+            // Safety limit
+            if counter > 100 {
+                return .fileExists(path: filePath)
+            }
+        }
+
+        // Create directory if needed
+        do {
+            try SettingsService.shared.createDirectoryIfNeeded(directory)
+        } catch {
+            return .directoryCreationFailed(error.localizedDescription)
+        }
+
+        // Generate markdown content
+        let markdown = generateSkillMarkdownFromCandidate(
+            content: originalMessage.content,
+            name: finalName,
+            description: suggestedDescription
+        )
+
+        // Write file
+        do {
+            try markdown.write(toFile: finalPath, atomically: true, encoding: .utf8)
+
+            // Mark candidate as converted
+            RepeatTracker.shared.markAsConverted(candidate.id)
+
+            return .success(path: finalPath)
+        } catch {
+            return .writeFailed(error.localizedDescription)
+        }
+    }
+
+    /// Generate skill markdown from a repeat candidate's content
+    private func generateSkillMarkdownFromCandidate(
+        content: String,
+        name: String,
+        description: String
+    ) -> String {
+        return """
+        ---
+        description: \(description)
+        ---
+
+        \(content)
+        """
+    }
+
     /// Sanitize a skill name to ensure it's valid for filenames
     func sanitizeSkillName(_ name: String) -> String {
         // Remove or replace invalid characters

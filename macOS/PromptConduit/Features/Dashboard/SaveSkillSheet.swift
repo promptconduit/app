@@ -1,10 +1,19 @@
 import SwiftUI
 
+/// Mode for the save skill sheet
+enum SaveSkillMode {
+    /// Standard mode with full editing capabilities
+    case standard
+    /// Quick save mode with pre-filled defaults from notification
+    case quickSave(suggestedName: String, suggestedDescription: String, suggestedLocation: SkillSaveLocation)
+}
+
 /// Sheet view for saving a detected pattern as a Claude Code skill
 struct SaveSkillSheet: View {
     let pattern: DetectedPattern
     @Binding var isPresented: Bool
     var onSave: ((String) -> Void)?  // Called with saved path on success
+    var mode: SaveSkillMode = .standard
 
     // MARK: - State
 
@@ -16,6 +25,12 @@ struct SaveSkillSheet: View {
     @State private var isSaving = false
 
     private let skillService = PatternSkillService()
+
+    /// Whether this is a quick save (pre-filled from notification)
+    private var isQuickSave: Bool {
+        if case .quickSave = mode { return true }
+        return false
+    }
 
     // MARK: - Computed Properties
 
@@ -59,10 +74,15 @@ struct SaveSkillSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             // Header
             HStack {
-                Image(systemName: "square.and.arrow.down")
-                    .foregroundColor(.accentColor)
-                Text("Save as Skill")
+                Image(systemName: isQuickSave ? "bolt.fill" : "square.and.arrow.down")
+                    .foregroundColor(isQuickSave ? .orange : .accentColor)
+                Text(isQuickSave ? "Quick Save Skill" : "Save as Skill")
                     .font(.headline)
+                if isQuickSave {
+                    Text("From detected pattern")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
             }
 
@@ -204,9 +224,17 @@ struct SaveSkillSheet: View {
     // MARK: - Actions
 
     private func populateDefaults() {
-        skillName = skillService.suggestSkillName(from: pattern)
-        description = skillService.suggestDescription(from: pattern)
-        saveLocation = skillService.suggestLocation(from: pattern)
+        switch mode {
+        case .standard:
+            skillName = skillService.suggestSkillName(from: pattern)
+            description = skillService.suggestDescription(from: pattern)
+            saveLocation = skillService.suggestLocation(from: pattern)
+
+        case .quickSave(let suggestedName, let suggestedDescription, let suggestedLocation):
+            skillName = suggestedName
+            description = suggestedDescription
+            saveLocation = suggestedLocation
+        }
     }
 
     private func saveSkill() {

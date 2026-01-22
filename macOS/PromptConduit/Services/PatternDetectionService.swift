@@ -18,6 +18,12 @@ struct PatternScore {
     let avgSimilarity: Double
     let mostRecent: Date
 
+    // New scoring factors
+    let promptComplexity: Double      // 0-1 based on word count and specificity
+    let successSignal: Double         // 0-1 based on follow-up message analysis
+    let contextSpecificity: Double    // 0-1 based on mentions of files, languages
+    let burstFactor: Double           // Higher if spread out (habitual), lower if clustered (burst)
+
     var compositeScore: Double {
         // Logarithmic scaling for count (diminishing returns)
         let countScore = log(Double(count) + 1) * 2.0
@@ -32,7 +38,56 @@ struct PatternScore {
         let daysSinceMostRecent = Date().timeIntervalSince(mostRecent) / 86400
         let recencyBonus = max(0, 1.0 - (daysSinceMostRecent / 30.0))
 
-        return countScore + diversityBonus + coherenceBonus + recencyBonus
+        // Complexity bonus - longer, more specific prompts are better skill candidates
+        let complexityBonus = promptComplexity * 1.5
+
+        // Success signal bonus - patterns that led to successful outcomes
+        let successBonus = successSignal * 1.0
+
+        // Context specificity bonus - patterns with file/language mentions are more actionable
+        let contextBonus = contextSpecificity * 0.5
+
+        // Habitual pattern bonus - spread out usage indicates ongoing need
+        let habitualBonus = burstFactor * 0.5
+
+        return countScore + diversityBonus + coherenceBonus + recencyBonus +
+               complexityBonus + successBonus + contextBonus + habitualBonus
+    }
+
+    /// Legacy initializer for backwards compatibility
+    init(count: Int, sessionDiversity: Int, repoDiversity: Int, avgSimilarity: Double, mostRecent: Date) {
+        self.count = count
+        self.sessionDiversity = sessionDiversity
+        self.repoDiversity = repoDiversity
+        self.avgSimilarity = avgSimilarity
+        self.mostRecent = mostRecent
+        self.promptComplexity = 0.5
+        self.successSignal = 0.5
+        self.contextSpecificity = 0.0
+        self.burstFactor = 0.5
+    }
+
+    /// Full initializer with all scoring factors
+    init(
+        count: Int,
+        sessionDiversity: Int,
+        repoDiversity: Int,
+        avgSimilarity: Double,
+        mostRecent: Date,
+        promptComplexity: Double,
+        successSignal: Double,
+        contextSpecificity: Double,
+        burstFactor: Double
+    ) {
+        self.count = count
+        self.sessionDiversity = sessionDiversity
+        self.repoDiversity = repoDiversity
+        self.avgSimilarity = avgSimilarity
+        self.mostRecent = mostRecent
+        self.promptComplexity = promptComplexity
+        self.successSignal = successSignal
+        self.contextSpecificity = contextSpecificity
+        self.burstFactor = burstFactor
     }
 }
 
@@ -349,12 +404,181 @@ class PatternDetectionService: ObservableObject {
         // Find most recent message
         let mostRecent = members.map { $0.message.timestamp }.max() ?? Date.distantPast
 
+        // Calculate new scoring factors
+        let promptComplexity = calculatePromptComplexity(members: members)
+        let successSignal = calculateSuccessSignal(members: members)
+        let contextSpecificity = calculateContextSpecificity(members: members)
+        let burstFactor = calculateBurstFactor(members: members)
+
         return PatternScore(
             count: count,
             sessionDiversity: sessionDiversity,
             repoDiversity: repoDiversity,
             avgSimilarity: avgSimilarity,
-            mostRecent: mostRecent
+            mostRecent: mostRecent,
+            promptComplexity: promptComplexity,
+            successSignal: successSignal,
+            contextSpecificity: contextSpecificity,
+            burstFactor: burstFactor
         )
+    }
+
+    // MARK: - Scoring Factor Calculations
+
+    /// Calculate prompt complexity score (0-1)
+    /// Higher for longer, more specific prompts
+    private func calculatePromptComplexity(members: [PatternMember]) -> Double {
+        guard !members.isEmpty else { return 0.5 }
+
+        // Use representative (first member) for complexity analysis
+        let content = members.first?.message.content ?? ""
+
+        // Word count factor (scaled 0-1, optimal around 20-50 words)
+        let words = content.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        let wordCount = words.count
+        let wordCountScore: Double
+        if wordCount < 5 {
+            wordCountScore = 0.2  // Too short
+        } else if wordCount < 15 {
+            wordCountScore = 0.5  // Moderate
+        } else if wordCount < 50 {
+            wordCountScore = 1.0  // Optimal
+        } else {
+            wordCountScore = 0.8  // Longer is still good but slightly less ideal
+        }
+
+        // Specificity heuristics
+        var specificityScore = 0.0
+
+        // Technical terms boost
+        let technicalPatterns = ["function", "class", "method", "api", "endpoint", "database",
+                                  "error", "bug", "fix", "implement", "refactor", "test"]
+        let contentLower = content.lowercased()
+        let technicalMatches = technicalPatterns.filter { contentLower.contains($0) }.count
+        specificityScore += min(Double(technicalMatches) * 0.1, 0.3)
+
+        // Quoted strings suggest specific values
+        let quoteMatches = content.components(separatedBy: "\"").count - 1 +
+                          content.components(separatedBy: "'").count - 1
+        specificityScore += min(Double(quoteMatches) * 0.1, 0.2)
+
+        // Code-like patterns (backticks, file extensions)
+        if content.contains("`") || content.contains(".ts") || content.contains(".swift") ||
+           content.contains(".py") || content.contains(".js") {
+            specificityScore += 0.2
+        }
+
+        return min(wordCountScore * 0.6 + specificityScore * 0.4, 1.0)
+    }
+
+    /// Calculate success signal score (0-1)
+    /// Higher when pattern appears to have led to successful outcomes
+    private func calculateSuccessSignal(members: [PatternMember]) -> Double {
+        // This is a heuristic based on message content
+        // In a fuller implementation, we'd look at the assistant's response and user's follow-up
+
+        var successIndicators = 0.0
+        let successPatterns = ["thanks", "perfect", "great", "worked", "awesome", "done", "solved"]
+        let failurePatterns = ["doesn't work", "wrong", "error", "fix", "broken", "issue", "problem"]
+
+        for member in members {
+            let contentLower = member.message.content.lowercased()
+
+            // Check for success language (usually not in the prompt itself, but sometimes)
+            // This is a placeholder - full implementation would check follow-up messages
+            for pattern in successPatterns {
+                if contentLower.contains(pattern) {
+                    successIndicators += 0.1
+                }
+            }
+
+            // Penalize if prompt contains failure language (might indicate repeated failures)
+            for pattern in failurePatterns {
+                if contentLower.contains(pattern) {
+                    successIndicators -= 0.05
+                }
+            }
+        }
+
+        // Normalize to 0-1 range, default to 0.5 (neutral)
+        return max(0, min(1, 0.5 + successIndicators / Double(max(1, members.count))))
+    }
+
+    /// Calculate context specificity score (0-1)
+    /// Higher for patterns that mention specific files, languages, or contexts
+    private func calculateContextSpecificity(members: [PatternMember]) -> Double {
+        guard !members.isEmpty else { return 0.0 }
+
+        var specificity = 0.0
+
+        // Check representative message for context indicators
+        let content = members.first?.message.content ?? ""
+        let contentLower = content.lowercased()
+
+        // File path patterns
+        if content.contains("/") && (content.contains(".") || content.contains("src/") || content.contains("lib/")) {
+            specificity += 0.3
+        }
+
+        // Language/framework mentions
+        let languages = ["swift", "python", "javascript", "typescript", "rust", "go", "java",
+                        "react", "vue", "angular", "node", "django", "rails"]
+        for lang in languages {
+            if contentLower.contains(lang) {
+                specificity += 0.15
+                break  // Only count once
+            }
+        }
+
+        // Tool/command mentions
+        let tools = ["git", "npm", "pip", "cargo", "make", "docker", "kubectl", "terraform"]
+        for tool in tools {
+            if contentLower.contains(tool) {
+                specificity += 0.1
+                break
+            }
+        }
+
+        // Function/class name patterns (CamelCase or snake_case)
+        let camelCasePattern = try? NSRegularExpression(pattern: "[A-Z][a-z]+[A-Z]", options: [])
+        let snakeCasePattern = try? NSRegularExpression(pattern: "[a-z]+_[a-z]+", options: [])
+        let range = NSRange(content.startIndex..., in: content)
+
+        if camelCasePattern?.firstMatch(in: content, options: [], range: range) != nil {
+            specificity += 0.1
+        }
+        if snakeCasePattern?.firstMatch(in: content, options: [], range: range) != nil {
+            specificity += 0.1
+        }
+
+        return min(specificity, 1.0)
+    }
+
+    /// Calculate burst factor score (0-1)
+    /// Higher for patterns spread over time (habitual), lower for clustered (burst)
+    private func calculateBurstFactor(members: [PatternMember]) -> Double {
+        guard members.count >= 2 else { return 0.5 }
+
+        // Get timestamps sorted
+        let timestamps = members.map { $0.message.timestamp }.sorted()
+
+        // Calculate time spread
+        guard let earliest = timestamps.first, let latest = timestamps.last else { return 0.5 }
+        let totalSpread = latest.timeIntervalSince(earliest)
+
+        // If all within 1 hour, likely a burst (debugging session)
+        if totalSpread < 3600 {
+            return 0.2
+        }
+
+        // If spread over multiple days, more habitual
+        let days = totalSpread / 86400
+        if days >= 7 {
+            return 1.0  // Week or more spread
+        } else if days >= 1 {
+            return 0.7  // Multiple days
+        } else {
+            return 0.4  // Same day but spread out
+        }
     }
 }
