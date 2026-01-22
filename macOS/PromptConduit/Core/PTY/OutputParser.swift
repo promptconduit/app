@@ -34,6 +34,10 @@ class OutputParser {
             // DEC special sequences
             "\\x1B[78]",
             "\\x1B\\([AB0-2]",
+            // RGB color codes that may leak through (38;2;R;G;Bm format)
+            "[0-9]+;[0-9]+;[0-9]+;[0-9]+;[0-9]+m",
+            // Partial SGR sequences
+            "[0-9;]+m",
         ]
         return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: []) }
     }()
@@ -145,6 +149,24 @@ class OutputParser {
         for pattern in readyPatterns {
             if lastLines.contains(pattern) {
                 parserLog("DETECTED ready pattern: '\(pattern)' in last lines - WAITING for input")
+                return true
+            }
+        }
+
+        // Claude Code TUI welcome/idle screen patterns
+        // These indicate Claude is on the welcome screen waiting for input
+        let welcomeScreenPatterns = [
+            "(shift+tab to cycle)",    // Status bar navigation hint
+            "shift+tab to cycle",      // Without parentheses
+            "/status for info",        // Help hint in status area
+            "Tips:",                   // Tips section on welcome screen
+            "What can I help",         // Welcome message
+            "to get started",          // Welcome message continuation
+        ]
+
+        for pattern in welcomeScreenPatterns {
+            if recentText.contains(pattern) {
+                parserLog("DETECTED welcome screen pattern: '\(pattern)' - WAITING for input")
                 return true
             }
         }
@@ -298,21 +320,27 @@ extension OutputParser {
         let lastLines = lines.suffix(5).joined(separator: "\n")
 
         // Check for "busy" indicators first - these mean Claude is running
+        // Use specific prefixes to avoid false matches with normal text
         let busyPatterns = [
             "Thinking...",
             "Loading...",
-            "Schlepping",
-            "Reading",
-            "Writing",
-            "Editing",
-            "Calling",
-            "mcp__",
-            "Running:",
-            "Executing",
-            "Bash",
-            "Glob",
-            "Grep",
-            "Task",
+            "Schlepping",        // Claude's quirky loading message
+            "· Reading",         // Tool in progress
+            "· Writing",         // Tool in progress
+            "· Editing",         // Tool in progress
+            "· Bash",            // Bash tool in progress
+            "· Glob",            // Glob tool in progress
+            "· Grep",            // Grep tool in progress
+            "· Task",            // Task tool in progress
+            "⏳",                // Loading spinner
+            "⎿",                 // Tool result box (closing)
+            "├",                 // Tool result box (middle)
+            "╭",                 // Tool result box (top corner)
+            "╰",                 // Tool result box (bottom corner)
+            "Calling",           // MCP tool calls
+            "mcp__",             // MCP tool prefix in output
+            "Running:",          // Running command indicator
+            "Executing",         // Execution indicator
         ]
 
         for pattern in busyPatterns {
@@ -340,6 +368,23 @@ extension OutputParser {
         for pattern in waitingPatterns {
             if lastLines.contains(pattern) {
                 parserLog("detectState: WAITING (found pattern '\(pattern)')")
+                return .waiting
+            }
+        }
+
+        // Claude Code TUI welcome/idle screen patterns
+        let welcomeScreenPatterns = [
+            "(shift+tab to cycle)",
+            "shift+tab to cycle",
+            "/status for info",
+            "Tips:",
+            "What can I help",
+            "to get started",
+        ]
+
+        for pattern in welcomeScreenPatterns {
+            if recentText.contains(pattern) {
+                parserLog("detectState: WAITING (found welcome screen pattern '\(pattern)')")
                 return .waiting
             }
         }
