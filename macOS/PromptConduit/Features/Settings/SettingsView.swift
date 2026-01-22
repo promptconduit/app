@@ -346,19 +346,19 @@ struct NewCommandSheet: View {
 // MARK: - Hooks Settings Tab
 
 struct HooksSettingsTab: View {
-    @State private var hookSettings: [String: Bool] = [
-        "SessionStart": true,
-        "Stop": true,
-        "PreToolUse": false,
-        "PostToolUse": false
-    ]
+    @State private var hooksInstalled: Bool = false
+    @State private var isInstalling: Bool = false
+    @State private var errorMessage: String?
+    @State private var showingConfirmUninstall: Bool = false
+
+    private let hookManager = ClaudeCodeHookManager.shared
 
     var body: some View {
         Form {
             Section {
                 Text("Claude Code Hooks")
                     .font(.headline)
-                Text("Configure which hooks the app listens to")
+                Text("Hooks enable precise session state tracking")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -366,26 +366,88 @@ struct HooksSettingsTab: View {
             Divider()
 
             Section {
-                ForEach(Array(hookSettings.keys.sorted()), id: \.self) { hook in
-                    Toggle(hook, isOn: Binding(
-                        get: { hookSettings[hook] ?? false },
-                        set: { hookSettings[hook] = $0 }
-                    ))
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: hooksInstalled ? "checkmark.circle.fill" : "circle")
+                            .foregroundColor(hooksInstalled ? .green : .secondary)
+                            .font(.title2)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(hooksInstalled ? "Hooks Installed" : "Hooks Not Installed")
+                                .font(.headline)
+                            Text(hooksInstalled
+                                ? "Session state is tracked via Claude Code hooks"
+                                : "Session state is tracked via terminal output parsing")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+                    }
+
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .padding(.vertical, 4)
+                    }
+
+                    HStack {
+                        if hooksInstalled {
+                            Button("Uninstall Hooks") {
+                                showingConfirmUninstall = true
+                            }
+                            .disabled(isInstalling)
+                        } else {
+                            Button("Install Hooks") {
+                                installHooks()
+                            }
+                            .disabled(isInstalling)
+                        }
+
+                        if isInstalling {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .padding(.leading, 4)
+                        }
+                    }
                 }
+                .padding(.vertical, 8)
             }
 
             Divider()
 
             Section {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Hook Configuration")
+                    Text("About Hooks")
                         .font(.headline)
 
-                    Text("Hooks are configured in ~/.claude/settings.json")
+                    VStack(alignment: .leading, spacing: 4) {
+                        HookInfoRow(event: "SessionStart", description: "Detects when Claude is ready for input")
+                        HookInfoRow(event: "UserPromptSubmit", description: "Detects when user submits a prompt")
+                        HookInfoRow(event: "Stop", description: "Detects when Claude finishes responding")
+                    }
+
+                    Text("Hooks are added to ~/.claude/settings.json (your existing settings are preserved)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.top, 4)
+                }
+                .padding(.vertical, 8)
+            }
+
+            Divider()
+
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Fallback Mode")
+                        .font(.headline)
+
+                    Text("Without hooks, PromptConduit uses terminal output parsing to detect session state. This works with any CLI but may be less accurate than hooks.")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    Button("Open Claude Settings") {
+                    Button("Open Claude Settings File") {
                         NSWorkspace.shared.selectFile(
                             SettingsService.claudeSettingsFilePath,
                             inFileViewerRootedAtPath: SettingsService.claudeSettingsPath
@@ -396,6 +458,80 @@ struct HooksSettingsTab: View {
             }
         }
         .padding()
+        .onAppear {
+            checkHooksInstalled()
+        }
+        .alert("Uninstall Hooks?", isPresented: $showingConfirmUninstall) {
+            Button("Cancel", role: .cancel) { }
+            Button("Uninstall", role: .destructive) {
+                uninstallHooks()
+            }
+        } message: {
+            Text("Session state will be tracked via terminal output parsing instead. This may be less accurate.")
+        }
+    }
+
+    private func checkHooksInstalled() {
+        hooksInstalled = hookManager.areHooksInstalled()
+    }
+
+    private func installHooks() {
+        isInstalling = true
+        errorMessage = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = hookManager.installHooks()
+
+            DispatchQueue.main.async {
+                isInstalling = false
+                switch result {
+                case .success:
+                    hooksInstalled = true
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func uninstallHooks() {
+        isInstalling = true
+        errorMessage = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = hookManager.uninstallHooks()
+
+            DispatchQueue.main.async {
+                isInstalling = false
+                switch result {
+                case .success:
+                    hooksInstalled = false
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+}
+
+struct HookInfoRow: View {
+    let event: String
+    let description: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(event)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
     }
 }
 

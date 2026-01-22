@@ -69,7 +69,7 @@ class TerminalSessionManager: ObservableObject {
             print("[HOOK] \(msg)")
         }
 
-        // Session started → associate Claude session ID, mark as hook-managed, set waiting, and mark ready for prompt
+        // Session started → associate Claude session ID, mark as hook-assisted, set waiting, and mark ready for prompt
         hookService.onSessionStart = { [weak self] event in
             hookLog("onSessionStart: cwd=\(event.cwd), sessionId=\(event.sessionId ?? "nil")")
             hookLog("  Available sessions: \(self?.sessions.map { "[\($0.repoName): wd=\($0.workingDirectory), isWaiting=\($0.isWaiting), hasPendingPrompt=\($0.pendingPrompt != nil)]" } ?? [])")
@@ -83,9 +83,8 @@ class TerminalSessionManager: ObservableObject {
 
                 hookLog("  MATCHED session index \(index): \(repoName) - setting isWaiting=TRUE, hasPendingPrompt=\(hasPendingPrompt)")
 
-                // Mark session as hook-managed - output parsing will no longer change state
-                self?.sessions[index].outputMonitor?.setHookManaged()
                 // Force set waiting state (hooks are authoritative)
+                // This also marks the session as hook-assisted
                 self?.sessions[index].outputMonitor?.forceSetWaiting(true)
 
                 // Mark session as ready for prompt if it has a pending prompt that hasn't been sent
@@ -106,12 +105,10 @@ class TerminalSessionManager: ObservableObject {
 
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
                 hookLog("  MATCHED session index \(index): \(self?.sessions[index].repoName ?? "?") - setting isWaiting=FALSE (Running)")
-                // Mark as hook-managed on any hook event (handles race condition where
-                // SessionStart fires before session is registered)
-                self?.sessions[index].outputMonitor?.setHookManaged()
                 // Clear the buffer to prevent old prompt patterns from persisting
                 self?.sessions[index].outputMonitor?.clearBuffer()
                 // Force set running state (hooks are authoritative)
+                // This also marks the session as hook-assisted
                 self?.sessions[index].outputMonitor?.forceSetWaiting(false)
             } else {
                 hookLog("  NO MATCH found for cwd")
@@ -125,10 +122,8 @@ class TerminalSessionManager: ObservableObject {
 
             if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
                 hookLog("  MATCHED session index \(index): \(self?.sessions[index].repoName ?? "?") - setting isWaiting=TRUE (Waiting)")
-                // Mark as hook-managed on any hook event (handles race condition where
-                // SessionStart fires before session is registered)
-                self?.sessions[index].outputMonitor?.setHookManaged()
                 // Force set waiting state (hooks are authoritative)
+                // This also marks the session as hook-assisted
                 self?.sessions[index].outputMonitor?.forceSetWaiting(true)
             } else {
                 hookLog("  NO MATCH found for cwd")
@@ -249,18 +244,10 @@ class TerminalSessionManager: ObservableObject {
             self?.updateWaitingState(id, isWaiting: isWaiting)
         }
 
-        // For sessions launched from the app (with groupId), make them hook-managed by default
-        // This prevents the output parser from incorrectly changing state before hooks fire
-        // The output parser often misdetects the Claude banner/ANSI codes as "not waiting"
-        if groupId != nil {
-            monitor.setHookManaged()
-            let hookManagedMsg = "[REG] Session \(repoName) set to hook-managed (has groupId)\n"
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                handle.seekToEndOfFile()
-                handle.write(hookManagedMsg.data(using: .utf8)!)
-                handle.closeFile()
-            }
-        }
+        // NOTE: We no longer auto-set hookManaged for sessions with groupId.
+        // The hybrid approach allows output parsing to work as a fallback,
+        // while hooks take priority when they fire. This works whether or
+        // not hooks are installed.
 
         sessions.append(session)
 

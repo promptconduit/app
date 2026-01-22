@@ -271,6 +271,94 @@ class OutputParser {
     }
 }
 
+// MARK: - Claude State Detection
+
+/// Represents the detected state of Claude Code CLI
+enum ClaudeState {
+    case waiting   // Ready for input (prompt visible, not processing)
+    case running   // Processing (busy patterns visible)
+    case unknown   // Can't determine state
+
+    var isWaiting: Bool { self == .waiting }
+    var isRunning: Bool { self == .running }
+}
+
+extension OutputParser {
+    /// Detects the current state of Claude from terminal output
+    /// This provides a more nuanced view than the binary isWaitingForInput
+    static func detectState(_ text: String) -> ClaudeState {
+        let cleanText = stripANSI(text).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Need some content to make a determination
+        guard cleanText.count > 10 else { return .unknown }
+
+        // Check last 500 chars for patterns
+        let recentText = String(cleanText.suffix(500))
+        let lines = recentText.components(separatedBy: "\n")
+        let lastLines = lines.suffix(5).joined(separator: "\n")
+
+        // Check for "busy" indicators first - these mean Claude is running
+        let busyPatterns = [
+            "Thinking...",
+            "Loading...",
+            "Schlepping",
+            "Reading",
+            "Writing",
+            "Editing",
+            "Calling",
+            "mcp__",
+            "Running:",
+            "Executing",
+            "Bash",
+            "Glob",
+            "Grep",
+            "Task",
+        ]
+
+        for pattern in busyPatterns {
+            if recentText.contains(pattern) {
+                parserLog("detectState: RUNNING (found busy pattern '\(pattern)')")
+                return .running
+            }
+        }
+
+        // Check for waiting patterns in last few lines
+        let waitingPatterns = [
+            "> Try \"",
+            "Continue?",
+            "(y/n)",
+            "(Y/n)",
+            "(y/N)",
+            "[Y/n]",
+            "[y/N]",
+            "Press Enter",
+            "Do you want",
+            "Would you like",
+            "confirm",
+        ]
+
+        for pattern in waitingPatterns {
+            if lastLines.contains(pattern) {
+                parserLog("detectState: WAITING (found pattern '\(pattern)')")
+                return .waiting
+            }
+        }
+
+        // If we see the empty prompt line pattern, it's waiting
+        let emptyPromptRegex = try? NSRegularExpression(pattern: "\\n>\\s*\\n", options: [])
+        if let regex = emptyPromptRegex {
+            let range = NSRange(lastLines.startIndex..., in: lastLines)
+            if regex.firstMatch(in: lastLines, options: [], range: range) != nil {
+                parserLog("detectState: WAITING (found empty prompt line)")
+                return .waiting
+            }
+        }
+
+        parserLog("detectState: UNKNOWN (no definitive pattern matched)")
+        return .unknown
+    }
+}
+
 // MARK: - Supporting Types
 
 struct ToolUse {

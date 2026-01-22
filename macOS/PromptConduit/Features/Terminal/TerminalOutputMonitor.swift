@@ -46,12 +46,24 @@ class TerminalOutputMonitor: ObservableObject {
     /// Timer for periodic state checking (fallback for terminals without output streaming)
     private var periodicCheckTimer: Timer?
 
-    /// When true, output parsing cannot change state - only hooks can
-    /// This is set when a hook event is received for this session
-    private var hookManaged: Bool = false
+    /// When true, hooks have been received for this session
+    /// Output parsing still runs but hooks take priority during active window
+    private var hookAssisted: Bool = false
 
-    /// Check if session is hook-managed
-    var isHookManaged: Bool { hookManaged }
+    /// Timestamp of last hook event - used to give hooks priority window
+    private var lastHookEventTime: Date?
+
+    /// Hook priority window (after hook fires, parsing is suppressed for this duration)
+    private let hookPriorityWindow: TimeInterval = 2.0
+
+    /// Check if session has received hook events
+    var isHookAssisted: Bool { hookAssisted }
+
+    /// Check if we're within the hook priority window
+    private var inHookPriorityWindow: Bool {
+        guard let lastHook = lastHookEventTime else { return false }
+        return Date().timeIntervalSince(lastHook) < hookPriorityWindow
+    }
 
     // MARK: - Initialization
 
@@ -156,23 +168,32 @@ class TerminalOutputMonitor: ObservableObject {
         monitorLog("Suppressing ALL output detection for \(duration)s until \(suppressAllUntil!)")
     }
 
-    /// Mark this session as hook-managed
-    /// Once called, output parsing will no longer change state - only forceSetWaiting can
-    func setHookManaged() {
-        hookManaged = true
-        monitorLog("Session is now hook-managed - output parsing will not change state")
+    /// Mark this session as hook-assisted
+    /// When hooks fire, they take priority; output parsing still runs as fallback
+    func setHookAssisted() {
+        hookAssisted = true
+        monitorLog("Session is now hook-assisted - hooks take priority when they fire")
     }
 
-    /// Force set waiting state (bypasses hook-managed check)
-    /// Only called from hook event handlers - hooks are authoritative
+    /// Legacy alias for backward compatibility
+    func setHookManaged() {
+        setHookAssisted()
+    }
+
+    /// Force set waiting state from hook events
+    /// Hooks are authoritative and set the hook priority window
     /// Always updates state regardless of lastNotifiedState since hooks are the source of truth
     func forceSetWaiting(_ waiting: Bool) {
         monitorLog("forceSetWaiting called: waiting=\(waiting), lastNotifiedState=\(lastNotifiedState)")
 
+        // Mark as hook-assisted and record the hook event time
+        hookAssisted = true
+        lastHookEventTime = Date()
+
         // Always update - hooks are authoritative and override any previous state
         // This handles the case where lastNotifiedState is out of sync with actual session state
         lastNotifiedState = waiting
-        monitorLog("State FORCE SET to \(waiting) by hook")
+        monitorLog("State FORCE SET to \(waiting) by hook (priority window started)")
 
         DispatchQueue.main.async { [weak self] in
             self?.isWaiting = waiting
@@ -191,12 +212,12 @@ class TerminalOutputMonitor: ObservableObject {
     }
 
     private func updateWaitingState(_ newState: Bool) {
-        monitorLog("updateWaitingState called: newState=\(newState), lastNotifiedState=\(lastNotifiedState), hookManaged=\(hookManaged)")
+        monitorLog("updateWaitingState called: newState=\(newState), lastNotifiedState=\(lastNotifiedState), hookAssisted=\(hookAssisted), inHookPriorityWindow=\(inHookPriorityWindow)")
 
-        // If hook-managed, output parsing cannot change state - only forceSetWaiting() can
-        // This ensures hooks are the permanent source of truth once established
-        if hookManaged {
-            monitorLog("Ignoring output-based state change - session is hook-managed")
+        // If in hook priority window (hook recently fired), ignore output-based state changes
+        // Hooks are authoritative during their priority window
+        if inHookPriorityWindow {
+            monitorLog("Ignoring output-based state change - in hook priority window")
             return
         }
 
@@ -221,7 +242,7 @@ class TerminalOutputMonitor: ObservableObject {
         }
 
         lastNotifiedState = newState
-        monitorLog("State CHANGED to \(newState), notifying...")
+        monitorLog("State CHANGED to \(newState) via output parsing, notifying...")
 
         DispatchQueue.main.async { [weak self] in
             self?.isWaiting = newState
