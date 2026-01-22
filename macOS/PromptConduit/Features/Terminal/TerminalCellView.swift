@@ -8,6 +8,7 @@ private enum CellTokens {
     static let backgroundPrimary = Color(red: 0.06, green: 0.09, blue: 0.16)
     static let backgroundHeader = Color(red: 0.12, green: 0.16, blue: 0.24)
     static let backgroundHeaderWaiting = Color(red: 0.3, green: 0.25, blue: 0.1)
+    static let backgroundHeaderBroadcast = Color(red: 0.0, green: 0.25, blue: 0.2)  // Cyan-tinted
     static let textPrimary = Color(red: 0.93, green: 0.94, blue: 0.96)
     static let textSecondary = Color(red: 0.58, green: 0.63, blue: 0.73)
     static let statusRunning = Color.green
@@ -15,6 +16,7 @@ private enum CellTokens {
     static let statusTerminated = Color.red
     static let borderWaiting = Color.yellow
     static let borderFocused = Color(red: 0.0, green: 0.83, blue: 0.67)  // Cyan
+    static let borderBroadcast = Color(red: 0.0, green: 0.83, blue: 0.67)  // Cyan for broadcast
 }
 
 /// A single terminal cell in the multi-terminal grid
@@ -23,6 +25,7 @@ struct TerminalCellView: View {
     let repoName: String
     let workingDirectory: String
     let isFocused: Bool
+    let isBroadcastEnabled: Bool
     let onFocus: () -> Void
     let onTerminated: () -> Void
     let onTerminalReady: (LocalProcessTerminalView) -> Void
@@ -124,6 +127,13 @@ struct TerminalCellView: View {
                 .foregroundColor(CellTokens.textPrimary)
                 .lineLimit(1)
 
+            // Broadcast indicator
+            if isBroadcastEnabled {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 9))
+                    .foregroundColor(CellTokens.borderBroadcast)
+            }
+
             Spacer()
 
             // Status text
@@ -159,7 +169,9 @@ struct TerminalCellView: View {
     }
 
     private var headerBackgroundColor: SwiftUI.Color {
-        if isWaiting {
+        if isBroadcastEnabled {
+            return CellTokens.backgroundHeaderBroadcast
+        } else if isWaiting {
             return CellTokens.backgroundHeaderWaiting
         } else {
             return CellTokens.backgroundHeader
@@ -167,7 +179,9 @@ struct TerminalCellView: View {
     }
 
     private var borderColor: SwiftUI.Color {
-        if isWaiting {
+        if isBroadcastEnabled {
+            return CellTokens.borderBroadcast
+        } else if isWaiting {
             return CellTokens.borderWaiting
         } else if isFocused {
             return CellTokens.borderFocused
@@ -177,7 +191,7 @@ struct TerminalCellView: View {
     }
 
     private var borderWidth: CGFloat {
-        if isWaiting || isFocused {
+        if isBroadcastEnabled || isWaiting || isFocused {
             return 2
         } else {
             return 0
@@ -256,6 +270,7 @@ struct TerminalCellView: View {
             repoName: "my-project",
             workingDirectory: "/tmp",
             isFocused: false,
+            isBroadcastEnabled: false,
             onFocus: {},
             onTerminated: {},
             onTerminalReady: { _ in }
@@ -267,6 +282,7 @@ struct TerminalCellView: View {
             repoName: "another-project",
             workingDirectory: "/tmp",
             isFocused: true,
+            isBroadcastEnabled: true,
             onFocus: {},
             onTerminated: {},
             onTerminalReady: { _ in }

@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SwiftTerm
+import AppKit
 
 /// Information about a terminal session launched from PromptConduit
 struct TerminalSessionInfo: Identifiable {
@@ -31,6 +32,9 @@ class TerminalSessionManager: ObservableObject {
     /// Sessions that are ready to receive their initial prompt
     /// Views observe this to know when to send prompts
     @Published private(set) var sessionsReadyForPrompt: Set<UUID> = []
+
+    /// Groups with broadcast mode enabled - keystrokes go to all terminals in the group
+    @Published private(set) var broadcastEnabledGroups: Set<UUID> = []
 
     /// Flag to prevent callbacks during cleanup
     private var isCleaningUp = false
@@ -698,6 +702,37 @@ class TerminalSessionManager: ObservableObject {
         }
     }
 
+    /// Broadcast a key event to all sessions in a group
+    func broadcastKeyEventToGroup(_ groupId: UUID, event: NSEvent) {
+        let groupSessions = sessions.filter { $0.groupId == groupId && $0.isRunning }
+
+        for session in groupSessions {
+            session.terminalView?.keyDown(with: event)
+        }
+    }
+
+    // MARK: - Broadcast Mode
+
+    /// Toggles broadcast mode for a group
+    /// Returns the new broadcast state
+    @discardableResult
+    func toggleBroadcast(for groupId: UUID) -> Bool {
+        if broadcastEnabledGroups.contains(groupId) {
+            broadcastEnabledGroups.remove(groupId)
+            NotificationCenter.default.post(name: .broadcastModeChanged, object: nil, userInfo: ["groupId": groupId, "enabled": false])
+            return false
+        } else {
+            broadcastEnabledGroups.insert(groupId)
+            NotificationCenter.default.post(name: .broadcastModeChanged, object: nil, userInfo: ["groupId": groupId, "enabled": true])
+            return true
+        }
+    }
+
+    /// Checks if broadcast mode is enabled for a group
+    func isBroadcastEnabled(for groupId: UUID) -> Bool {
+        broadcastEnabledGroups.contains(groupId)
+    }
+
     /// Get sessions for a specific group
     func sessions(for groupId: UUID) -> [TerminalSessionInfo] {
         sessions.filter { $0.groupId == groupId }
@@ -718,4 +753,7 @@ extension Notification.Name {
 
     /// Posted when the dashboard should navigate to a terminal session
     static let navigateToTerminalSession = Notification.Name("navigateToTerminalSession")
+
+    /// Posted when broadcast mode is toggled for a session group
+    static let broadcastModeChanged = Notification.Name("broadcastModeChanged")
 }

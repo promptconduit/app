@@ -121,38 +121,70 @@ class TerminalPanel: NSPanel {
 
 // MARK: - TerminalWindow
 
-/// Custom NSWindow for multi-terminal grids that intercepts copy (Cmd+C) and image paste (Cmd+V)
-/// Similar to TerminalPanel but for regular windows with multiple terminals
+/// Custom NSWindow for multi-terminal grids that intercepts copy (Cmd+C), image paste (Cmd+V),
+/// and broadcast toggle (Cmd+B). Supports broadcast mode for typing to all terminals at once.
 class TerminalWindow: NSWindow {
     private let imageService = ImageAttachmentService.shared
+    private let terminalManager = TerminalSessionManager.shared
+
+    /// The group ID for broadcast mode. Set this when displaying a multi-terminal grid.
+    var groupId: UUID?
 
     override func sendEvent(_ event: NSEvent) {
-        // Intercept Cmd+C and Cmd+V before they reach SwiftTerm's keyDown
-        // (SwiftTerm's keyDown clears selection before processing, so we must handle copy first)
+        // Handle keyDown events
+        if event.type == .keyDown {
+            // Check for command key combinations
+            if event.modifierFlags.contains(.command) {
+                let key = event.charactersIgnoringModifiers?.lowercased()
 
-        if event.type == .keyDown,
-           event.modifierFlags.contains(.command) {
-
-            let key = event.charactersIgnoringModifiers?.lowercased()
-
-            // Handle Cmd+C (copy) - must intercept before SwiftTerm clears selection in keyDown
-            if key == "c" {
-                if handleCopy() {
-                    return // Copy succeeded, don't pass to terminal
-                }
-            }
-
-            // Handle Cmd+V (paste) - check for image
-            if key == "v" {
-                if imageService.pasteboardContainsImage() {
-                    handleImagePaste()
+                // Handle Cmd+B (broadcast toggle)
+                if key == "b" {
+                    handleBroadcastToggle()
                     return // Don't pass to terminal
+                }
+
+                // Handle Cmd+C (copy) - must intercept before SwiftTerm clears selection in keyDown
+                if key == "c" {
+                    if handleCopy() {
+                        return // Copy succeeded, don't pass to terminal
+                    }
+                }
+
+                // Handle Cmd+V (paste) - check for image, then check for broadcast
+                if key == "v" {
+                    if imageService.pasteboardContainsImage() {
+                        handleImagePaste()
+                        return // Don't pass to terminal
+                    }
+                    // For text paste in broadcast mode, broadcast the clipboard text
+                    if let groupId = groupId, terminalManager.isBroadcastEnabled(for: groupId) {
+                        if let text = NSPasteboard.general.string(forType: .string) {
+                            terminalManager.broadcastToGroup(groupId, text: text)
+                            return
+                        }
+                    }
+                }
+            } else {
+                // Non-command key - check for broadcast mode
+                if let groupId = groupId, terminalManager.isBroadcastEnabled(for: groupId) {
+                    // Broadcast this key event to all terminals in the group
+                    terminalManager.broadcastKeyEventToGroup(groupId, event: event)
+                    return // Don't pass to the focused terminal (it already got the event via broadcast)
                 }
             }
         }
 
         // Pass all other events through normally
         super.sendEvent(event)
+    }
+
+    /// Handles Cmd+B to toggle broadcast mode
+    private func handleBroadcastToggle() {
+        guard let groupId = groupId else {
+            NSSound.beep()
+            return
+        }
+        terminalManager.toggleBroadcast(for: groupId)
     }
 
     /// Handles copying selected text from the focused terminal

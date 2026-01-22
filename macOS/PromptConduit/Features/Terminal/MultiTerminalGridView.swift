@@ -10,6 +10,7 @@ private enum GridTokens {
     static let textPrimary = Color(red: 0.93, green: 0.94, blue: 0.96)
     static let textSecondary = Color(red: 0.58, green: 0.63, blue: 0.73)
     static let accentCyan = Color(red: 0.0, green: 0.83, blue: 0.67)
+    static let accentOrange = Color(red: 1.0, green: 0.6, blue: 0.2)
     static let gridSpacing: CGFloat = 2
 }
 
@@ -25,6 +26,9 @@ struct MultiTerminalGridView: View {
     @State private var focusedSessionId: UUID?
     @State private var sessionIds: [UUID] = []
     @State private var isInitializing = true
+
+    // Broadcast mode state
+    @State private var isBroadcastEnabled = false
 
     // Deep link highlight state
     @State private var highlightedSessionId: UUID?
@@ -43,7 +47,10 @@ struct MultiTerminalGridView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                // Terminal grid (header removed - redundant with group header)
+                // Broadcast header bar
+                broadcastHeaderBar
+
+                // Terminal grid
                 GeometryReader { geometry in
                     let cellWidth = (geometry.size.width - GridTokens.gridSpacing * CGFloat(dimensions.cols - 1)) / CGFloat(dimensions.cols)
                     let cellHeight = (geometry.size.height - GridTokens.gridSpacing * CGFloat(dimensions.rows - 1)) / CGFloat(dimensions.rows)
@@ -62,6 +69,7 @@ struct MultiTerminalGridView: View {
                                     repoName: repoName,
                                     workingDirectory: repoPath,
                                     isFocused: focusedSessionId == sessionId,
+                                    isBroadcastEnabled: isBroadcastEnabled,
                                     onFocus: {
                                         focusedSessionId = sessionId
                                         focusTerminal(sessionId)
@@ -98,6 +106,8 @@ struct MultiTerminalGridView: View {
             setupSessions()
             // Ensure hook service is listening (TerminalSessionManager handles the events)
             HookNotificationService.shared.startListening()
+            // Sync broadcast state in case it was already enabled
+            isBroadcastEnabled = terminalManager.isBroadcastEnabled(for: groupId)
 
             // Fallback: dismiss loading overlay after 10 seconds even if terminals haven't all reported ready
             DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
@@ -118,6 +128,9 @@ struct MultiTerminalGridView: View {
         .onReceive(NotificationCenter.default.publisher(for: .highlightTerminalSession)) { notification in
             handleHighlightNotification(notification)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .broadcastModeChanged)) { notification in
+            handleBroadcastModeNotification(notification)
+        }
         // SINGLE SOURCE OF TRUTH: Observe sessions ready for prompt from the manager
         .onReceive(terminalManager.$sessionsReadyForPrompt) { readySessions in
             // Filter to only sessions in this group
@@ -137,6 +150,77 @@ struct MultiTerminalGridView: View {
         }
 
         highlightSession(sessionId)
+    }
+
+    private func handleBroadcastModeNotification(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let targetGroupId = userInfo["groupId"] as? UUID,
+              targetGroupId == groupId,
+              let enabled = userInfo["enabled"] as? Bool else {
+            return
+        }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isBroadcastEnabled = enabled
+        }
+    }
+
+    // MARK: - Broadcast Header Bar
+
+    private var broadcastHeaderBar: some View {
+        HStack(spacing: 12) {
+            // Broadcast toggle button with keyboard shortcut
+            Button(action: {
+                terminalManager.toggleBroadcast(for: groupId)
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: isBroadcastEnabled ? "antenna.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.slash")
+                        .font(.system(size: 12, weight: .medium))
+
+                    Text("Broadcast")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(isBroadcastEnabled ? GridTokens.accentCyan.opacity(0.2) : Color.clear)
+                .foregroundColor(isBroadcastEnabled ? GridTokens.accentCyan : GridTokens.textSecondary)
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isBroadcastEnabled ? GridTokens.accentCyan : GridTokens.textSecondary.opacity(0.3), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("b", modifiers: .command)
+            .help("Toggle broadcast mode (⌘B)")
+
+            // Status text
+            if isBroadcastEnabled {
+                Text("Typing goes to all terminals")
+                    .font(.system(size: 11))
+                    .foregroundColor(GridTokens.accentCyan)
+            }
+
+            Spacer()
+
+            // Keyboard shortcut hint
+            Text("⌘B")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(GridTokens.textSecondary.opacity(0.6))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(GridTokens.backgroundHeader)
+                .cornerRadius(4)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(isBroadcastEnabled ? GridTokens.accentCyan.opacity(0.05) : GridTokens.backgroundHeader)
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(isBroadcastEnabled ? GridTokens.accentCyan.opacity(0.3) : GridTokens.backgroundPrimary),
+            alignment: .bottom
+        )
     }
 
     // MARK: - Loading Overlay

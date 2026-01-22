@@ -519,13 +519,16 @@ class AgentPanelController {
         // Calculate window size based on layout
         let windowSize = layout.windowSize(for: repositories.count)
 
-        // Create window (use TerminalWindow for Cmd+C copy and Cmd+V image paste support)
+        // Create window (use TerminalWindow for Cmd+C copy, Cmd+V image paste, and Cmd+B broadcast support)
         let window = TerminalWindow(
             contentRect: NSRect(x: 0, y: 0, width: windowSize.width, height: windowSize.height),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
+
+        // Set groupId for broadcast mode support
+        window.groupId = group.id
 
         window.title = "Claude Code - Multi-Session (\(repositories.count) repos)"
         window.minSize = NSSize(width: 800, height: 400)
