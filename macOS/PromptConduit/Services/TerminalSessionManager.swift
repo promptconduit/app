@@ -13,11 +13,11 @@ struct TerminalSessionInfo: Identifiable {
     var groupId: UUID? = nil  // For multi-session groups
     var claudeSessionId: String? = nil  // Claude Code's session ID for reliable matching
     weak var terminalView: LocalProcessTerminalView? = nil
-    var outputMonitor: TerminalOutputMonitor? = nil
+    let launchTime: Date  // When this terminal was launched (for session association)
 
     // MARK: - Prompt Management (Single Source of Truth)
     var pendingPrompt: String? = nil  // Prompt to send when session becomes ready
-    var isReadyForPrompt: Bool = false  // Set true when SessionStart hook fires
+    var isReadyForPrompt: Bool = false  // Set true when JSONL shows session is waiting
     var promptSent: Bool = false  // Track if we've already sent the prompt
 }
 
@@ -39,6 +39,9 @@ class TerminalSessionManager: ObservableObject {
     /// Flag to prevent callbacks during cleanup
     private var isCleaningUp = false
 
+    /// Combine cancellables for JSONL monitoring subscriptions
+    private var cancellables = Set<AnyCancellable>()
+
     /// Number of sessions waiting for input
     var waitingCount: Int {
         sessions.filter { $0.isWaiting }.count
@@ -50,167 +53,175 @@ class TerminalSessionManager: ObservableObject {
     }
 
     private init() {
-        setupHookListening()
+        setupJSONLMonitoring()
     }
 
-    // MARK: - Hook Event Listening
+    // MARK: - JSONL-Based State Monitoring
 
-    private func setupHookListening() {
-        let hookService = HookNotificationService.shared
+    private func setupJSONLMonitoring() {
         let logPath = "/tmp/promptconduit-terminal.log"
 
-        func hookLog(_ msg: String) {
-            let line = "[HOOK \(Date())] \(msg)\n"
+        func jsonlLog(_ msg: String) {
+            let line = "[JSONL \(Date())] \(msg)\n"
             if let handle = FileHandle(forWritingAtPath: logPath) {
                 handle.seekToEndOfFile()
                 handle.write(line.data(using: .utf8)!)
                 handle.closeFile()
             }
-            print("[HOOK] \(msg)")
+            print("[JSONL] \(msg)")
         }
 
-        // Session started → associate Claude session ID, mark as hook-assisted, set waiting, and mark ready for prompt
-        hookService.onSessionStart = { [weak self] event in
-            hookLog("onSessionStart: cwd=\(event.cwd), sessionId=\(event.sessionId ?? "nil")")
-            hookLog("  Available sessions: \(self?.sessions.map { "[\($0.repoName): wd=\($0.workingDirectory), isWaiting=\($0.isWaiting), hasPendingPrompt=\($0.pendingPrompt != nil)]" } ?? [])")
+        // Subscribe to ClaudeSessionDiscovery updates
+        ClaudeSessionDiscovery.shared.$repoGroups
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] groups in
+                self?.reconcileSessionStates(from: groups)
+            }
+            .store(in: &cancellables)
 
-            self?.associateClaudeSession(cwd: event.cwd, claudeSessionId: event.sessionId)
-            if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
-                let sessionId = self?.sessions[index].id
-                let repoName = self?.sessions[index].repoName ?? "?"
-                let hasPendingPrompt = self?.sessions[index].pendingPrompt != nil
-                let promptAlreadySent = self?.sessions[index].promptSent ?? false
+        // Subscribe to session waiting notifications
+        ClaudeSessionDiscovery.shared.onSessionBecameWaiting = { [weak self] discoveredSession in
+            jsonlLog("Session became waiting: \(discoveredSession.id) in \(discoveredSession.repoPath)")
+            self?.handleSessionBecameWaiting(discoveredSession)
+        }
 
-                hookLog("  MATCHED session index \(index): \(repoName) - setting isWaiting=TRUE, hasPendingPrompt=\(hasPendingPrompt)")
+        jsonlLog("JSONL monitoring setup complete")
+    }
 
-                // Force set waiting state (hooks are authoritative)
-                // This also marks the session as hook-assisted
-                self?.sessions[index].outputMonitor?.forceSetWaiting(true)
+    /// Reconciles our terminal session states with discovered JSONL sessions
+    private func reconcileSessionStates(from groups: [RepoSessionGroup]) {
+        guard !isCleaningUp else { return }
 
-                // Mark session as ready for prompt if it has a pending prompt that hasn't been sent
-                if hasPendingPrompt && !promptAlreadySent, let sessionId = sessionId {
-                    hookLog("  Session \(repoName) marked READY FOR PROMPT")
-                    self?.sessions[index].isReadyForPrompt = true
-                    self?.sessionsReadyForPrompt.insert(sessionId)
+        let logPath = "/tmp/promptconduit-terminal.log"
+
+        for i in sessions.indices {
+            let session = sessions[i]
+
+            // Find matching discovered session by claudeSessionId or cwd+timing
+            if let discovered = findMatchingDiscoveredSession(for: session, in: groups) {
+                // Update Claude session ID if we found a match
+                if sessions[i].claudeSessionId == nil {
+                    sessions[i].claudeSessionId = discovered.id
+
+                    let logMsg = "[JSONL] Associated terminal \(session.repoName) with Claude session \(discovered.id)\n"
+                    if let handle = FileHandle(forWritingAtPath: logPath) {
+                        handle.seekToEndOfFile()
+                        handle.write(logMsg.data(using: .utf8)!)
+                        handle.closeFile()
+                    }
                 }
-            } else {
-                hookLog("  NO MATCH found for cwd")
-            }
-        }
 
-        // User submitted prompt → running
-        hookService.onUserPromptSubmit = { [weak self] event in
-            hookLog("onUserPromptSubmit: cwd=\(event.cwd), sessionId=\(event.sessionId ?? "nil")")
-            hookLog("  Available sessions: \(self?.sessions.map { "[\($0.repoName): wd=\($0.workingDirectory), isWaiting=\($0.isWaiting)]" } ?? [])")
+                // Update waiting state from JSONL-detected status
+                let isWaiting = discovered.status == .waiting
+                if sessions[i].isWaiting != isWaiting {
+                    let logMsg = "[JSONL] Session \(session.repoName): isWaiting changed to \(isWaiting) (status: \(discovered.status))\n"
+                    if let handle = FileHandle(forWritingAtPath: logPath) {
+                        handle.seekToEndOfFile()
+                        handle.write(logMsg.data(using: .utf8)!)
+                        handle.closeFile()
+                    }
+                    updateWaitingState(session.id, isWaiting: isWaiting)
+                }
 
-            if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
-                hookLog("  MATCHED session index \(index): \(self?.sessions[index].repoName ?? "?") - setting isWaiting=FALSE (Running)")
-                // Clear the buffer to prevent old prompt patterns from persisting
-                self?.sessions[index].outputMonitor?.clearBuffer()
-                // Force set running state (hooks are authoritative)
-                // This also marks the session as hook-assisted
-                self?.sessions[index].outputMonitor?.forceSetWaiting(false)
-            } else {
-                hookLog("  NO MATCH found for cwd")
-            }
-        }
-
-        // Claude stopped → waiting
-        hookService.onStop = { [weak self] event in
-            hookLog("onStop: cwd=\(event.cwd), sessionId=\(event.sessionId ?? "nil")")
-            hookLog("  Available sessions: \(self?.sessions.map { "[\($0.repoName): wd=\($0.workingDirectory), isWaiting=\($0.isWaiting)]" } ?? [])")
-
-            if let index = self?.findSessionIndex(cwd: event.cwd, sessionId: event.sessionId) {
-                hookLog("  MATCHED session index \(index): \(self?.sessions[index].repoName ?? "?") - setting isWaiting=TRUE (Waiting)")
-                // Force set waiting state (hooks are authoritative)
-                // This also marks the session as hook-assisted
-                self?.sessions[index].outputMonitor?.forceSetWaiting(true)
-            } else {
-                hookLog("  NO MATCH found for cwd")
+                // Mark session as ready for prompt if waiting and has pending prompt
+                if isWaiting && sessions[i].pendingPrompt != nil && !sessions[i].promptSent && !sessions[i].isReadyForPrompt {
+                    let logMsg = "[JSONL] Session \(session.repoName) marked READY FOR PROMPT\n"
+                    if let handle = FileHandle(forWritingAtPath: logPath) {
+                        handle.seekToEndOfFile()
+                        handle.write(logMsg.data(using: .utf8)!)
+                        handle.closeFile()
+                    }
+                    sessions[i].isReadyForPrompt = true
+                    sessionsReadyForPrompt.insert(session.id)
+                }
             }
         }
     }
 
-    /// Associates Claude's session ID with our app session
-    private func associateClaudeSession(cwd: String, claudeSessionId: String?) {
-        guard let claudeSessionId = claudeSessionId else { return }
-        guard let index = findSessionIndex(cwd: cwd, sessionId: nil) else { return }
-        sessions[index].claudeSessionId = claudeSessionId
+    /// Finds a matching discovered session for a terminal session
+    private func findMatchingDiscoveredSession(for session: TerminalSessionInfo, in groups: [RepoSessionGroup]) -> DiscoveredSession? {
+        // Try Claude session ID first (most reliable)
+        if let claudeId = session.claudeSessionId {
+            for group in groups {
+                if let discovered = group.sessions.first(where: { $0.id == claudeId }) {
+                    return discovered
+                }
+            }
+        }
+
+        // Try matching by working directory + timing
+        // Look for sessions in the same repo that started after our terminal launched
+        for group in groups {
+            // Check if the terminal's working directory matches this group's repo
+            let repoPath = group.id
+            guard session.workingDirectory == repoPath ||
+                  session.workingDirectory.hasPrefix(repoPath + "/") ||
+                  repoPath.hasPrefix(session.workingDirectory + "/") else {
+                continue
+            }
+
+            // Find sessions that started after our terminal was launched
+            // Give a 30-second window for Claude to initialize and write first event
+            let matchWindow = session.launchTime.addingTimeInterval(-5) // Small buffer for timing
+            let matchingSessions = group.sessions.filter { $0.lastActivity >= matchWindow }
+
+            // Return the most recent one
+            if let discovered = matchingSessions.sorted(by: { $0.lastActivity > $1.lastActivity }).first {
+                return discovered
+            }
+        }
+
+        return nil
+    }
+
+    /// Handles when a discovered session becomes waiting
+    private func handleSessionBecameWaiting(_ discoveredSession: DiscoveredSession) {
+        // Find the terminal session associated with this discovered session
+        for i in sessions.indices {
+            let session = sessions[i]
+
+            // Match by claudeSessionId or by working directory
+            let matches = session.claudeSessionId == discoveredSession.id ||
+                          session.workingDirectory == discoveredSession.repoPath ||
+                          session.workingDirectory.hasPrefix(discoveredSession.repoPath + "/")
+
+            if matches {
+                // Mark session as ready for prompt if it has a pending prompt
+                if sessions[i].pendingPrompt != nil && !sessions[i].promptSent && !sessions[i].isReadyForPrompt {
+                    sessions[i].isReadyForPrompt = true
+                    sessionsReadyForPrompt.insert(session.id)
+                }
+                break
+            }
+        }
     }
 
     /// Finds session by Claude session ID first, then by cwd/directory name
     private func findSessionIndex(cwd: String, sessionId: String?) -> Int? {
-        let logPath = "/tmp/promptconduit-terminal.log"
-        func findLog(_ msg: String) {
-            let line = "[FIND \(Date())] \(msg)\n"
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                handle.seekToEndOfFile()
-                handle.write(line.data(using: .utf8)!)
-                handle.closeFile()
-            }
-        }
-
-        findLog("findSessionIndex: cwd=\(cwd), sessionId=\(sessionId ?? "nil")")
-        findLog("  sessions count: \(sessions.count)")
-
         // Try Claude session ID first (most reliable)
-        // Only match if sessionId is non-empty (empty strings would match all empty claudeSessionIds)
         if let sessionId = sessionId, !sessionId.isEmpty {
-            findLog("  Trying Claude sessionId match...")
-            for (i, session) in sessions.enumerated() {
-                findLog("    [\(i)] \(session.repoName): claudeSessionId=\(session.claudeSessionId ?? "nil")")
-            }
             if let index = sessions.firstIndex(where: { $0.claudeSessionId == sessionId }) {
-                findLog("  MATCHED by claudeSessionId at index \(index): \(sessions[index].repoName)")
                 return index
             }
         }
 
-        // Try exact cwd match - prefer sessions with pending prompts (newer sessions)
-        findLog("  Trying exact cwd match (prefer sessions with pending prompt)...")
-        for (i, session) in sessions.enumerated() {
-            let hasPending = session.pendingPrompt != nil && !session.promptSent
-            findLog("    [\(i)] \(session.repoName): wd=\(session.workingDirectory) vs cwd=\(cwd) → match=\(session.workingDirectory == cwd), hasPendingPrompt=\(hasPending)")
-        }
-        // First try to find session with pending prompt (newly created session)
+        // Try exact cwd match - prefer sessions with pending prompts
         if let index = sessions.firstIndex(where: { $0.workingDirectory == cwd && $0.pendingPrompt != nil && !$0.promptSent }) {
-            findLog("  MATCHED by exact cwd WITH pending prompt at index \(index): \(sessions[index].repoName)")
             return index
         }
-        // Fall back to any session with matching cwd
         if let index = sessions.firstIndex(where: { $0.workingDirectory == cwd }) {
-            findLog("  MATCHED by exact cwd at index \(index): \(sessions[index].repoName)")
             return index
         }
 
-        // Try prefix match: hook cwd might be a subdirectory of the repo
-        // e.g., session launched for /repo/app but Claude runs in /repo/app/macOS
-        findLog("  Trying prefix match (cwd is subdirectory of repo, prefer pending prompt)...")
-        for (i, session) in sessions.enumerated() {
-            let repoPath = session.workingDirectory
-            let isSubdir = cwd.hasPrefix(repoPath + "/") || cwd == repoPath
-            let hasPending = session.pendingPrompt != nil && !session.promptSent
-            findLog("    [\(i)] \(session.repoName): cwd.hasPrefix(\(repoPath)/) → \(isSubdir), hasPendingPrompt=\(hasPending)")
-        }
-        // First try to find session with pending prompt
+        // Try prefix match
         if let index = sessions.firstIndex(where: { cwd.hasPrefix($0.workingDirectory + "/") && $0.pendingPrompt != nil && !$0.promptSent }) {
-            findLog("  MATCHED by prefix WITH pending prompt at index \(index): \(sessions[index].repoName)")
             return index
         }
-        // Fall back to any session with matching prefix
         if let index = sessions.firstIndex(where: { cwd.hasPrefix($0.workingDirectory + "/") }) {
-            findLog("  MATCHED by prefix (subdirectory) at index \(index): \(sessions[index].repoName)")
             return index
         }
 
-        findLog("  NO MATCH FOUND")
         return nil
-    }
-
-    /// Update session state using flexible matching
-    private func updateSessionState(cwd: String, sessionId: String?, isWaiting: Bool) {
-        guard let index = findSessionIndex(cwd: cwd, sessionId: sessionId) else { return }
-        updateWaitingState(sessions[index].id, isWaiting: isWaiting)
     }
 
     // MARK: - Session Management
@@ -233,9 +244,6 @@ class TerminalSessionManager: ObservableObject {
         }
         print("[REG] \(regMsg)")
 
-        // Create output monitor for waiting state detection
-        let monitor = TerminalOutputMonitor()
-
         var session = TerminalSessionInfo(
             id: id,
             repoName: repoName,
@@ -243,26 +251,9 @@ class TerminalSessionManager: ObservableObject {
             isRunning: true,
             isWaiting: true,  // Default to waiting (Claude starts ready for input)
             groupId: groupId,
-            outputMonitor: monitor
+            launchTime: Date()  // Record launch time for JSONL session association
         )
         session.pendingPrompt = pendingPrompt
-
-        // Setup monitoring callback
-        monitor.onWaitingStateChanged = { [weak self] isWaiting in
-            let cbMsg = "[CALLBACK] onWaitingStateChanged for \(repoName): isWaiting=\(isWaiting)\n"
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                handle.seekToEndOfFile()
-                handle.write(cbMsg.data(using: .utf8)!)
-                handle.closeFile()
-            }
-            print("[CALLBACK] \(cbMsg)")
-            self?.updateWaitingState(id, isWaiting: isWaiting)
-        }
-
-        // NOTE: We no longer auto-set hookManaged for sessions with groupId.
-        // The hybrid approach allows output parsing to work as a fallback,
-        // while hooks take priority when they fire. This works whether or
-        // not hooks are installed.
 
         sessions.append(session)
 
@@ -275,6 +266,12 @@ class TerminalSessionManager: ObservableObject {
 
         // Register working directory to exclude from external detection
         ProcessDetectionService.shared.registerManagedWorkingDirectory(workingDirectory)
+
+        // Trigger a refresh of ClaudeSessionDiscovery to pick up any existing sessions
+        // This helps associate the terminal with an existing Claude session if one exists
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            ClaudeSessionDiscovery.shared.refreshStatuses()
+        }
     }
 
     /// Updates the terminal view reference for a session
@@ -335,7 +332,6 @@ class TerminalSessionManager: ObservableObject {
 
         sessions[index].isRunning = false
         sessions[index].isWaiting = false
-        sessions[index].outputMonitor?.stopMonitoring()
 
         // Update SessionGroup status if this session belongs to a group
         if let groupId = groupId {
@@ -424,29 +420,11 @@ class TerminalSessionManager: ObservableObject {
         }
     }
 
-    /// Process terminal output for waiting state detection
+    /// Process terminal output (no longer used for state detection - JSONL handles this)
+    /// Kept for backward compatibility but does nothing
     func processOutput(_ id: UUID, text: String) {
-        // Log to file for debugging
-        let logPath = "/tmp/promptconduit-terminal.log"
-        let logMessage = "[TerminalSessionManager] processOutput called for session \(id.uuidString.prefix(8))\n"
-        if let handle = FileHandle(forWritingAtPath: logPath) {
-            handle.seekToEndOfFile()
-            handle.write(logMessage.data(using: .utf8)!)
-            handle.closeFile()
-        }
-
-        // Ignore callbacks during cleanup to prevent crashes
-        guard !isCleaningUp else { return }
-        guard let index = sessions.firstIndex(where: { $0.id == id }) else {
-            print("[TerminalSessionManager] processOutput: session \(id) not found")
-            return
-        }
-
-        // Debug: Log output processing
-        let cleanText = text.replacingOccurrences(of: "\n", with: "\\n").prefix(100)
-        print("[TerminalSessionManager] processOutput for \(sessions[index].repoName): '\(cleanText)'")
-
-        sessions[index].outputMonitor?.processOutput(text)
+        // State detection is now handled by JSONL monitoring
+        // This method is kept for API compatibility but no longer does anything
     }
 
     /// Focus a session window (bring to front)
@@ -479,10 +457,6 @@ class TerminalSessionManager: ObservableObject {
         // Capture session data before modifying array
         let session = sessions[index]
 
-        // Stop monitoring first to prevent callbacks during cleanup
-        session.outputMonitor?.stopMonitoring()
-        session.outputMonitor?.onWaitingStateChanged = nil
-
         // Cancel any pending notifications
         NotificationService.shared.cancelNotification(for: id)
 
@@ -503,9 +477,6 @@ class TerminalSessionManager: ObservableObject {
     func unregisterSession(_ id: UUID) {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
 
-        // Stop monitoring first to prevent callbacks during cleanup
-        sessions[index].outputMonitor?.stopMonitoring()
-        sessions[index].outputMonitor?.onWaitingStateChanged = nil
         sessions[index].terminalView = nil
 
         // Cancel any pending notifications
@@ -526,10 +497,8 @@ class TerminalSessionManager: ObservableObject {
         // Take a snapshot of sessions to avoid issues during cleanup
         let allSessions = sessions
 
-        // Stop monitoring first to prevent callbacks during cleanup
+        // Cancel notifications
         for session in allSessions {
-            session.outputMonitor?.stopMonitoring()
-            session.outputMonitor?.onWaitingStateChanged = nil
             NotificationService.shared.cancelNotification(for: session.id)
         }
 
@@ -657,10 +626,8 @@ class TerminalSessionManager: ObservableObject {
         // Find all sessions in this group and collect their data before modifying the array
         let groupSessions = sessions.filter { $0.groupId == groupId }
 
-        // First, stop all monitors and clear callbacks to prevent async issues
+        // Cancel notifications
         for session in groupSessions {
-            session.outputMonitor?.stopMonitoring()
-            session.outputMonitor?.onWaitingStateChanged = nil
             NotificationService.shared.cancelNotification(for: session.id)
         }
 

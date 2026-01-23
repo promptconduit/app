@@ -23,8 +23,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize notification service for waiting state alerts
         NotificationService.shared.setup()
 
-        // Initialize hook notification service for CLI hook events
-        HookNotificationService.shared.startListening()
+        // Start JSONL session monitoring for state tracking
+        ClaudeSessionDiscovery.shared.startMonitoring()
 
         // Archive stale session groups from previous sessions that no longer have running processes
         SettingsService.shared.archiveStaleSessionGroups()

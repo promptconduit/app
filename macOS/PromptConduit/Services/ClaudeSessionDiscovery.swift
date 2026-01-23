@@ -45,6 +45,8 @@ struct DiscoveredSession: Identifiable, Equatable {
     var status: ClaudeSessionStatus
     var lastActivity: Date
     var messageCount: Int
+    var lastEventType: String? = nil  // Last JSONL event type for state tracking
+    var lastStopReason: String? = nil // Stop reason for assistant messages
 
     /// Repository name derived from path
     var repoName: String {
@@ -87,7 +89,17 @@ class ClaudeSessionDiscovery: ObservableObject {
     @Published private(set) var lastRefresh: Date?
 
     private var refreshTimer: Timer?
-    private let refreshInterval: TimeInterval = 5.0 // Refresh every 5 seconds
+    private let refreshInterval: TimeInterval = 5.0 // Refresh every 5 seconds (backup)
+
+    /// File system watchers for project directories
+    private var directoryWatchers: [String: DispatchSourceFileSystemObject] = [:]
+    private var fileDescriptors: [String: Int32] = [:]
+
+    /// Callback when a session transitions to waiting state
+    var onSessionBecameWaiting: ((DiscoveredSession) -> Void)?
+
+    /// Track previous states to detect transitions
+    private var previousSessionStates: [String: ClaudeSessionStatus] = [:]
 
     private init() {}
 
@@ -99,6 +111,11 @@ class ClaudeSessionDiscovery: ObservableObject {
         refreshProcessCacheIfNeeded()
 
         refresh()
+
+        // Start file system watchers for real-time updates
+        startDirectoryWatchers()
+
+        // Keep polling as backup for missed events
         refreshTimer?.invalidate()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refreshStatuses()
@@ -109,6 +126,66 @@ class ClaudeSessionDiscovery: ObservableObject {
     func stopMonitoring() {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        stopDirectoryWatchers()
+    }
+
+    /// Starts file system watchers for project directories
+    private func startDirectoryWatchers() {
+        let projectsDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/projects")
+
+        guard FileManager.default.fileExists(atPath: projectsDir.path),
+              let entries = try? FileManager.default.contentsOfDirectory(atPath: projectsDir.path) else {
+            return
+        }
+
+        for entry in entries {
+            let projectDir = projectsDir.appendingPathComponent(entry)
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: projectDir.path, isDirectory: &isDir), isDir.boolValue {
+                watchProjectDirectory(projectDir.path)
+            }
+        }
+    }
+
+    /// Stops all directory watchers
+    private func stopDirectoryWatchers() {
+        for (path, source) in directoryWatchers {
+            source.cancel()
+            if let fd = fileDescriptors[path] {
+                close(fd)
+            }
+        }
+        directoryWatchers.removeAll()
+        fileDescriptors.removeAll()
+    }
+
+    /// Watches a single project directory for file changes
+    private func watchProjectDirectory(_ path: String) {
+        guard directoryWatchers[path] == nil else { return }
+
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        fileDescriptors[path] = fd
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .attrib],
+            queue: .main
+        )
+
+        source.setEventHandler { [weak self] in
+            // File change detected - refresh statuses immediately
+            self?.refreshStatuses()
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        source.resume()
+        directoryWatchers[path] = source
     }
 
     /// Performs a full refresh of all sessions
@@ -137,7 +214,24 @@ class ClaudeSessionDiscovery: ObservableObject {
                 if let info = try? FileManager.default.attributesOfItem(atPath: session.filePath),
                    let modDate = info[.modificationDate] as? Date {
                     repoGroups[i].sessions[j].lastActivity = modDate
-                    repoGroups[i].sessions[j].status = detectStatus(modificationDate: modDate, repoPath: session.repoPath)
+
+                    // Use JSONL-based status detection for authoritative state
+                    let (newStatus, lastEventType, stopReason) = detectStatusFromJSONL(
+                        path: session.filePath,
+                        modDate: modDate,
+                        repoPath: session.repoPath
+                    )
+                    repoGroups[i].sessions[j].status = newStatus
+                    repoGroups[i].sessions[j].lastEventType = lastEventType
+                    repoGroups[i].sessions[j].lastStopReason = stopReason
+
+                    // Detect state transitions and notify
+                    let previousStatus = previousSessionStates[session.id]
+                    if newStatus == .waiting && previousStatus != .waiting {
+                        let updatedSession = repoGroups[i].sessions[j]
+                        onSessionBecameWaiting?(updatedSession)
+                    }
+                    previousSessionStates[session.id] = newStatus
                 }
             }
         }
@@ -149,6 +243,54 @@ class ClaudeSessionDiscovery: ObservableObject {
         if let index = repoGroups.firstIndex(where: { $0.id == repoPath }) {
             repoGroups[index].isExpanded.toggle()
         }
+    }
+
+    /// Finds a session by its Claude session ID
+    func session(byId sessionId: String) -> DiscoveredSession? {
+        for group in repoGroups {
+            if let session = group.sessions.first(where: { $0.id == sessionId }) {
+                return session
+            }
+        }
+        return nil
+    }
+
+    /// Finds sessions for a repository path (working directory)
+    /// Supports exact match and prefix matching (cwd might be a subdirectory)
+    func sessions(forRepoPath repoPath: String) -> [DiscoveredSession] {
+        // Try exact match first
+        if let group = repoGroups.first(where: { $0.id == repoPath }) {
+            return group.sessions
+        }
+
+        // Try prefix match (repo might be a parent of the cwd)
+        for group in repoGroups {
+            if repoPath.hasPrefix(group.id + "/") || repoPath.hasPrefix(group.id) {
+                return group.sessions
+            }
+        }
+
+        return []
+    }
+
+    /// Finds the most recent active session for a repository path
+    /// Returns the session that was most recently modified and is not idle
+    func mostRecentActiveSession(forRepoPath repoPath: String) -> DiscoveredSession? {
+        let matchingSessions = sessions(forRepoPath: repoPath)
+        return matchingSessions
+            .filter { $0.status != .idle }
+            .sorted { $0.lastActivity > $1.lastActivity }
+            .first
+    }
+
+    /// Finds a session that was created after a specific time for a repository path
+    /// Useful for associating newly launched terminals with their Claude session
+    func session(forRepoPath repoPath: String, createdAfter: Date) -> DiscoveredSession? {
+        let matchingSessions = sessions(forRepoPath: repoPath)
+        return matchingSessions
+            .filter { $0.lastActivity >= createdAfter }
+            .sorted { $0.lastActivity > $1.lastActivity }
+            .first
     }
 
     // MARK: - Discovery
@@ -257,15 +399,18 @@ class ClaudeSessionDiscovery: ObservableObject {
 
         let sessionId = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         let (title, messageCount) = extractSessionMetadata(path, sessionId: sessionId)
+        let (status, lastEventType, stopReason) = detectStatusFromJSONL(path: path, modDate: modDate, repoPath: repoPath)
 
         return DiscoveredSession(
             id: sessionId,
             filePath: path,
             repoPath: repoPath,
             title: title ?? String(sessionId.prefix(8)) + "...",
-            status: detectStatus(modificationDate: modDate, repoPath: repoPath),
+            status: status,
             lastActivity: modDate,
-            messageCount: messageCount
+            messageCount: messageCount,
+            lastEventType: lastEventType,
+            lastStopReason: stopReason
         )
     }
 
@@ -376,6 +521,102 @@ class ClaudeSessionDiscovery: ObservableObject {
         default:
             return .idle
         }
+    }
+
+    /// Determines session status from JSONL content (authoritative state detection)
+    /// Returns (status, lastEventType, stopReason)
+    private func detectStatusFromJSONL(path: String, modDate: Date, repoPath: String) -> (ClaudeSessionStatus, String?, String?) {
+        // If file is old (>5 minutes), it's idle regardless of content
+        let age = Date().timeIntervalSince(modDate)
+        if age > 300 {
+            return (.idle, nil, nil)
+        }
+
+        // Read last few events from JSONL file efficiently (seek to end, read last ~10KB)
+        guard let lastEvent = readLastJSONLEvent(path) else {
+            // Fallback to time-based detection
+            return (detectStatus(modificationDate: modDate, repoPath: repoPath), nil, nil)
+        }
+
+        let eventType = lastEvent["type"] as? String
+
+        switch eventType {
+        case "user":
+            // User just submitted a prompt - Claude is running
+            return (.running, eventType, nil)
+
+        case "assistant":
+            // Check stop_reason to determine if Claude is done
+            if let message = lastEvent["message"] as? [String: Any],
+               let stopReason = message["stop_reason"] as? String {
+                if stopReason == "end_turn" {
+                    // Claude finished responding - waiting for input
+                    return (.waiting, eventType, stopReason)
+                } else if stopReason == "tool_use" {
+                    // Claude is using a tool - still running
+                    return (.running, eventType, stopReason)
+                }
+            }
+            // No stop_reason or unknown - likely still streaming
+            // Check if file was modified recently (within 30s) to determine if actively streaming
+            if age < 30 {
+                return (.running, eventType, nil)
+            }
+            // File is older but not too old - might be waiting
+            return (.waiting, eventType, nil)
+
+        case "tool_result":
+            // Tool result received - Claude is running (processing result)
+            return (.running, eventType, nil)
+
+        case "summary":
+            // Summary event - session is idle or waiting
+            return (.waiting, eventType, nil)
+
+        default:
+            // Unknown event type or system events - use time-based fallback
+            return (detectStatus(modificationDate: modDate, repoPath: repoPath), eventType, nil)
+        }
+    }
+
+    /// Reads the last JSONL event from a file efficiently
+    /// Seeks to end and reads last ~10KB to find the last complete JSON line
+    private func readLastJSONLEvent(_ path: String) -> [String: Any]? {
+        guard let handle = FileHandle(forReadingAtPath: path) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        // Get file size
+        guard let fileSize = try? handle.seekToEnd(), fileSize > 0 else {
+            return nil
+        }
+
+        // Read last 10KB (should contain multiple recent events)
+        let bytesToRead: UInt64 = min(10240, fileSize)
+        let offset = fileSize - bytesToRead
+
+        try? handle.seek(toOffset: offset)
+        guard let data = try? handle.readToEnd(),
+              let content = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        // Split by newlines and find last valid JSON
+        let lines = content.components(separatedBy: .newlines)
+
+        // Iterate from end to find last valid JSON object
+        for line in lines.reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let lineData = trimmed.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
+                continue
+            }
+            return json
+        }
+
+        return nil
     }
 
     /// Cache for running Claude processes (repo path -> is running)
