@@ -14,9 +14,6 @@ class AgentPanelController {
     /// Panel for creating new agents (separate from session panels)
     private var newAgentPanel: NSPanel?
 
-    /// Panel for browsing repositories
-    private var repositoriesPanel: NSPanel?
-
     /// Panel for sessions dashboard
     private var sessionsDashboardPanel: NSPanel?
 
@@ -140,50 +137,6 @@ class AgentPanelController {
         newAgentPanel = panel
     }
 
-    /// Shows the repositories browser panel
-    func showRepositoriesPanel() {
-        // Close existing repos panel if open
-        repositoriesPanel?.close()
-
-        let panel = createPanel()
-        panel.title = "Repositories"
-
-        let view = RepositoriesView(
-            onSelectRepo: { [weak self, weak panel] repo in
-                // Close repos panel and open new session launcher with this repo selected
-                panel?.close()
-                self?.showNewAgentPanelWithRepo(repo)
-            },
-            onResumeSession: { [weak self, weak panel] sessionHistory in
-                // Close repos panel and resume the session
-                panel?.close()
-                self?.resumeAgent(from: sessionHistory)
-            },
-            onNewSession: { [weak self, weak panel] repoPath in
-                // Close repos panel and open session launcher with this repo
-                panel?.close()
-                let repo = RecentRepository(path: repoPath)
-                self?.showNewAgentPanelWithRepo(repo)
-            },
-            onAddRepo: { [weak self, weak panel] in
-                // Show file picker to add a new repo
-                self?.selectAndAddRepository(parentPanel: panel)
-            },
-            onClose: { [weak panel] in
-                panel?.close()
-            }
-        )
-        panel.contentView = NSHostingView(rootView: view)
-
-        // Make the panel larger for the repos browser
-        panel.setContentSize(NSSize(width: 900, height: 600))
-
-        panel.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        repositoriesPanel = panel
-    }
-
     /// Shows the sessions dashboard panel (unified dashboard view)
     func showSessionsDashboardPanel() {
         // Close existing dashboard panel if open
@@ -252,34 +205,6 @@ class AgentPanelController {
             initialPrompt: nil,
             additionalArguments: ["--resume", session.id]
         )
-    }
-
-    /// Shows a new agent creation window with a pre-selected repository
-    private func showNewAgentPanelWithRepo(_ repo: RecentRepository) {
-        // Add to recent repos
-        SettingsService.shared.addRecentRepository(path: repo.path)
-
-        // Show the normal new agent panel - it will auto-select the most recent repo
-        showNewAgentPanel()
-    }
-
-    /// Opens a file picker to add a new repository
-    private func selectAndAddRepository(parentPanel: NSPanel?) {
-        let openPanel = NSOpenPanel()
-        openPanel.canChooseFiles = false
-        openPanel.canChooseDirectories = true
-        openPanel.allowsMultipleSelection = false
-        openPanel.message = "Select a repository folder"
-
-        if SettingsService.shared.directoryExists(SettingsService.shared.defaultProjectsDirectory) {
-            openPanel.directoryURL = URL(fileURLWithPath: SettingsService.shared.defaultProjectsDirectory)
-        }
-
-        openPanel.beginSheetModal(for: parentPanel ?? NSPanel()) { response in
-            if response == .OK, let url = openPanel.url {
-                SettingsService.shared.addRecentRepository(path: url.path)
-            }
-        }
     }
 
     /// Shows an existing agent session in its own window

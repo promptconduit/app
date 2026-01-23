@@ -39,7 +39,6 @@ struct SessionLauncherView: View {
     @State private var prompt: String = ""
     @State private var selectedCommand: SlashCommand?
     @State private var showAllSessions = false
-    @State private var showTemplateSheet = false
 
     private var effectiveDirectory: String {
         selectedRepository?.path ?? customDirectoryPath
@@ -142,16 +141,6 @@ struct SessionLauncherView: View {
                     }
                 }
 
-                // Templates button
-                if !settings.repositoryTemplates.isEmpty {
-                    Button("Templates") {
-                        showTemplateSheet = true
-                    }
-                    .font(.system(size: 12))
-                    .foregroundColor(LauncherTokens.accentPurple)
-                    .buttonStyle(.plain)
-                }
-
                 Button("Browse...") {
                     selectDirectory()
                 }
@@ -225,14 +214,6 @@ struct SessionLauncherView: View {
                 }
             }
         }
-        .sheet(isPresented: $showTemplateSheet) {
-            TemplateSelectionSheet(
-                isPresented: $showTemplateSheet,
-                onSelectTemplate: { template in
-                    applyTemplate(template)
-                }
-            )
-        }
     }
 
     private func toggleRepoSelection(_ path: String) {
@@ -243,13 +224,6 @@ struct SessionLauncherView: View {
                 selectedRepositories.insert(path)
             }
         }
-    }
-
-    private func applyTemplate(_ template: RepositoryTemplate) {
-        isMultiSelectMode = true
-        selectedRepositories = Set(template.repositoryPaths.prefix(maxSelectedRepos))
-        selectedLayout = template.defaultLayout
-        settings.markTemplateUsed(template.id)
     }
 
     private var customDirectoryInput: some View {
@@ -848,122 +822,5 @@ struct MultiSelectRepositoryCard: View {
             isHovered = hovering
         }
         .help(repo.path)
-    }
-}
-
-// MARK: - Template Selection Sheet
-
-struct TemplateSelectionSheet: View {
-    @Binding var isPresented: Bool
-    let onSelectTemplate: (RepositoryTemplate) -> Void
-
-    @ObservedObject private var settings = SettingsService.shared
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("Repository Templates")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(LauncherTokens.textPrimary)
-
-                Spacer()
-
-                Button(action: { isPresented = false }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(LauncherTokens.textMuted)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding()
-            .background(LauncherTokens.backgroundSecondary)
-
-            Divider()
-
-            // Template list
-            if settings.repositoryTemplates.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "rectangle.stack.badge.plus")
-                        .font(.system(size: 32))
-                        .foregroundColor(LauncherTokens.textMuted)
-
-                    Text("No templates yet")
-                        .font(.system(size: 14))
-                        .foregroundColor(LauncherTokens.textSecondary)
-
-                    Text("Create templates by selecting multiple repos and saving them.")
-                        .font(.system(size: 12))
-                        .foregroundColor(LauncherTokens.textMuted)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(40)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    VStack(spacing: 8) {
-                        ForEach(settings.repositoryTemplates) { template in
-                            TemplateRow(template: template) {
-                                onSelectTemplate(template)
-                                isPresented = false
-                            }
-                        }
-                    }
-                    .padding()
-                }
-            }
-        }
-        .frame(width: 400, height: 350)
-        .background(LauncherTokens.backgroundPrimary)
-    }
-}
-
-// MARK: - Template Row
-
-struct TemplateRow: View {
-    let template: RepositoryTemplate
-    let onSelect: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 12) {
-                // Icon
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(LauncherTokens.accentPurple.opacity(0.2))
-                        .frame(width: 40, height: 40)
-
-                    Image(systemName: "square.grid.2x2.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(LauncherTokens.accentPurple)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(template.name)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(LauncherTokens.textPrimary)
-                        .lineLimit(1)
-
-                    Text("\(template.repositoryCount) repositories")
-                        .font(.system(size: 11))
-                        .foregroundColor(LauncherTokens.textSecondary)
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12))
-                    .foregroundColor(LauncherTokens.textMuted)
-            }
-            .padding(12)
-            .background(isHovered ? LauncherTokens.backgroundCardHover : LauncherTokens.backgroundCard)
-            .cornerRadius(10)
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-        }
     }
 }

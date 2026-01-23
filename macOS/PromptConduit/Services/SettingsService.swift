@@ -123,7 +123,6 @@ class SettingsService: ObservableObject {
 
     private static let maxRecentRepos = 10
     private static let maxSessionHistory = 50
-    private static let maxTemplates = 20
     private static let maxSessionGroups = 50
 
     // MARK: - Published Settings
@@ -162,7 +161,6 @@ class SettingsService: ObservableObject {
 
     @Published private(set) var recentRepositories: [RecentRepository] = []
     @Published private(set) var sessionHistory: [SessionHistory] = []
-    @Published private(set) var repositoryTemplates: [RepositoryTemplate] = []
     @Published private(set) var sessionGroups: [SessionGroup] = []
 
     // MARK: - Paths
@@ -231,12 +229,6 @@ class SettingsService: ObservableObject {
         if let data = defaults.data(forKey: "sessionHistory"),
            let history = try? JSONDecoder().decode([SessionHistory].self, from: data) {
             self.sessionHistory = history
-        }
-
-        // Load repository templates
-        if let data = defaults.data(forKey: "repositoryTemplates"),
-           let templates = try? JSONDecoder().decode([RepositoryTemplate].self, from: data) {
-            self.repositoryTemplates = templates
         }
 
         // Load session groups
@@ -387,68 +379,6 @@ class SettingsService: ObservableObject {
     func clearSessionHistory(forRepository path: String) {
         sessionHistory.removeAll { $0.repositoryPath == path }
         saveSessionHistory()
-    }
-
-    // MARK: - Repository Templates
-
-    private func saveRepositoryTemplates() {
-        if let data = try? JSONEncoder().encode(repositoryTemplates) {
-            defaults.set(data, forKey: "repositoryTemplates")
-        }
-    }
-
-    /// Saves a new repository template
-    func saveTemplate(_ template: RepositoryTemplate) {
-        // Check if already exists (update it)
-        if let index = repositoryTemplates.firstIndex(where: { $0.id == template.id }) {
-            repositoryTemplates[index] = template
-        } else {
-            // Add new template
-            repositoryTemplates.insert(template, at: 0)
-
-            // Keep only the most recent N templates
-            if repositoryTemplates.count > Self.maxTemplates {
-                repositoryTemplates = Array(repositoryTemplates.prefix(Self.maxTemplates))
-            }
-        }
-
-        saveRepositoryTemplates()
-    }
-
-    /// Updates an existing template
-    func updateTemplate(_ template: RepositoryTemplate) {
-        if let index = repositoryTemplates.firstIndex(where: { $0.id == template.id }) {
-            repositoryTemplates[index] = template
-            saveRepositoryTemplates()
-        }
-    }
-
-    /// Marks a template as recently used
-    func markTemplateUsed(_ templateId: UUID) {
-        if let index = repositoryTemplates.firstIndex(where: { $0.id == templateId }) {
-            repositoryTemplates[index] = repositoryTemplates[index].withUpdatedLastUsed()
-            // Move to top of list
-            let template = repositoryTemplates.remove(at: index)
-            repositoryTemplates.insert(template, at: 0)
-            saveRepositoryTemplates()
-        }
-    }
-
-    /// Deletes a template by ID
-    func deleteTemplate(_ id: UUID) {
-        repositoryTemplates.removeAll { $0.id == id }
-        saveRepositoryTemplates()
-    }
-
-    /// Gets a template by ID
-    func template(for id: UUID) -> RepositoryTemplate? {
-        repositoryTemplates.first { $0.id == id }
-    }
-
-    /// Clears all repository templates
-    func clearRepositoryTemplates() {
-        repositoryTemplates.removeAll()
-        saveRepositoryTemplates()
     }
 
     // MARK: - Session Groups
