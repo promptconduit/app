@@ -531,7 +531,10 @@ class AgentPanelController {
         window.groupId = group.id
 
         window.title = "Claude Code - Multi-Session (\(repositories.count) repos)"
-        window.minSize = NSSize(width: 800, height: 400)
+
+        // Use the layout's minimum window size to ensure terminals have enough columns for Claude Code
+        let minSize = layout.minimumWindowSize(for: repositories.count)
+        window.minSize = NSSize(width: minSize.width, height: minSize.height)
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         // Position window centered on screen
