@@ -14,6 +14,9 @@ struct SessionComposerView: View {
     @State private var prompt: String = ""
     @State private var selectedCommand: SlashCommand?
 
+    // Focus state for prompt input
+    @FocusState private var isPromptFocused: Bool
+
     private let maxSelectedRepos = 8
 
     let onLaunchGroup: ([String], GridLayout, String) -> Void
@@ -280,12 +283,13 @@ struct SessionComposerView: View {
             HStack(alignment: .bottom, spacing: 12) {
                 // Text input
                 ZStack(alignment: .topLeading) {
-                    if prompt.isEmpty {
+                    if prompt.isEmpty && !isPromptFocused {
                         Text("What would you like Claude to help with?")
                             .font(.system(size: 14))
                             .foregroundColor(TokyoNight.textMuted)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 8)
+                            .allowsHitTesting(false)
                     }
 
                     TextEditor(text: $prompt)
@@ -294,6 +298,7 @@ struct SessionComposerView: View {
                         .scrollContentBackground(.hidden)
                         .background(Color.clear)
                         .frame(minHeight: 40, maxHeight: 120)
+                        .focused($isPromptFocused)
                 }
                 .padding(12)
                 .background(TokyoNight.backgroundCard)
@@ -301,10 +306,13 @@ struct SessionComposerView: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(
-                            prompt.isEmpty ? TokyoNight.borderColor : TokyoNight.accentCyan.opacity(0.5),
+                            isPromptFocused ? TokyoNight.accentCyan : (prompt.isEmpty ? TokyoNight.borderColor : TokyoNight.accentCyan.opacity(0.5)),
                             lineWidth: 1
                         )
                 )
+                .onTapGesture {
+                    isPromptFocused = true
+                }
 
                 // Launch button
                 Button(action: launchSession) {

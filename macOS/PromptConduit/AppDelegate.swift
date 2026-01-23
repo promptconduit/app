@@ -23,6 +23,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize notification service for waiting state alerts
         NotificationService.shared.setup()
 
+        // Install hooks for fast event notifications (hybrid approach)
+        // Hooks provide immediate notifications, JSONL provides authoritative state
+        installHooksIfNeeded()
+
         // Start JSONL session monitoring for state tracking
         ClaudeSessionDiscovery.shared.startMonitoring()
 
@@ -31,6 +35,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Hide dock icon (menu bar app only)
         NSApp.setActivationPolicy(.accessory)
+    }
+
+    /// Installs Claude Code hooks for fast event notifications
+    private func installHooksIfNeeded() {
+        let hookManager = ClaudeCodeHookManager.shared
+
+        // Check if hooks are already installed
+        if hookManager.areHooksInstalled() {
+            print("[AppDelegate] Hooks already installed")
+            return
+        }
+
+        // Install hooks
+        switch hookManager.installHooks() {
+        case .success:
+            print("[AppDelegate] Hooks installed successfully")
+        case .failure(let error):
+            print("[AppDelegate] Failed to install hooks: \(error.localizedDescription)")
+            // Continue without hooks - JSONL will still work as fallback
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

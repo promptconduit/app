@@ -525,7 +525,8 @@ class ClaudeSessionDiscovery: ObservableObject {
 
     /// Determines session status from JSONL content (authoritative state detection)
     /// Returns (status, lastEventType, stopReason)
-    private func detectStatusFromJSONL(path: String, modDate: Date, repoPath: String) -> (ClaudeSessionStatus, String?, String?) {
+    /// Note: Internal for testability
+    func detectStatusFromJSONL(path: String, modDate: Date, repoPath: String) -> (ClaudeSessionStatus, String?, String?) {
         // If file is old (>5 minutes), it's idle regardless of content
         let age = Date().timeIntervalSince(modDate)
         if age > 300 {
@@ -569,19 +570,34 @@ class ClaudeSessionDiscovery: ObservableObject {
             // Tool result received - Claude is running (processing result)
             return (.running, eventType, nil)
 
+        case "progress":
+            // Progress events indicate Claude is actively working
+            // (hook progress, tool execution, thinking, etc.)
+            return (.running, eventType, nil)
+
+        case "result":
+            // Result events from tool execution - Claude is running
+            return (.running, eventType, nil)
+
         case "summary":
             // Summary event - session is idle or waiting
             return (.waiting, eventType, nil)
 
         default:
-            // Unknown event type or system events - use time-based fallback
+            // For unknown event types, use time-based heuristics
+            // If file was modified very recently (within 30s), probably running
+            if age < 30 {
+                return (.running, eventType, nil)
+            }
+            // Otherwise fall back to standard time-based detection
             return (detectStatus(modificationDate: modDate, repoPath: repoPath), eventType, nil)
         }
     }
 
     /// Reads the last JSONL event from a file efficiently
     /// Seeks to end and reads last ~10KB to find the last complete JSON line
-    private func readLastJSONLEvent(_ path: String) -> [String: Any]? {
+    /// Note: Internal for testability
+    func readLastJSONLEvent(_ path: String) -> [String: Any]? {
         guard let handle = FileHandle(forReadingAtPath: path) else {
             return nil
         }
