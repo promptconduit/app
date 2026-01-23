@@ -14,9 +14,6 @@ struct SessionComposerView: View {
     @State private var prompt: String = ""
     @State private var selectedCommand: SlashCommand?
 
-    // Focus state for prompt input
-    @State private var isPromptFocused: Bool = false
-
     private let maxSelectedRepos = 8
 
     let onLaunchGroup: ([String], GridLayout, String) -> Void
@@ -293,8 +290,12 @@ struct SessionComposerView: View {
                             .allowsHitTesting(false)
                     }
 
-                    // Use a focusable NSTextView wrapper for reliable keyboard input
-                    FocusableTextEditor(text: $prompt, isFocused: $isPromptFocused)
+                    // Standard TextEditor - simpler and avoids focus-related CPU spikes
+                    TextEditor(text: $prompt)
+                        .font(.system(size: 14))
+                        .foregroundColor(TokyoNight.textPrimary)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.clear)
                         .frame(minHeight: 40, maxHeight: 120)
                 }
                 .padding(12)
@@ -303,7 +304,7 @@ struct SessionComposerView: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(
-                            isPromptFocused ? TokyoNight.accentCyan : (prompt.isEmpty ? TokyoNight.borderColor : TokyoNight.accentCyan.opacity(0.5)),
+                            prompt.isEmpty ? TokyoNight.borderColor : TokyoNight.accentCyan.opacity(0.5),
                             lineWidth: 1
                         )
                 )
@@ -509,102 +510,3 @@ private struct QuickStartCommandChip: View {
     }
 }
 
-// MARK: - Focusable Text Editor (NSViewRepresentable)
-
-/// A text editor wrapper that properly handles keyboard focus on macOS
-struct FocusableTextEditor: NSViewRepresentable {
-    @Binding var text: String
-    @Binding var isFocused: Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        let textView = FocusableNSTextView()
-
-        textView.delegate = context.coordinator
-        textView.isRichText = false
-        textView.font = NSFont.systemFont(ofSize: 14)
-        textView.textColor = NSColor(TokyoNight.textPrimary)
-        textView.backgroundColor = .clear
-        textView.drawsBackground = false
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.allowsUndo = true
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.widthTracksTextView = true
-        textView.autoresizingMask = [.width]
-
-        // Store reference for focus handling
-        textView.onFocusChange = { focused in
-            DispatchQueue.main.async {
-                self.isFocused = focused
-            }
-        }
-
-        scrollView.documentView = textView
-        scrollView.hasVerticalScroller = false
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .noBorder
-        scrollView.drawsBackground = false
-
-        context.coordinator.textView = textView
-
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-
-        if textView.string != text {
-            textView.string = text
-        }
-
-        // Handle programmatic focus
-        if isFocused && textView.window?.firstResponder != textView {
-            DispatchQueue.main.async {
-                textView.window?.makeFirstResponder(textView)
-            }
-        }
-    }
-
-    class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: FocusableTextEditor
-        weak var textView: NSTextView?
-
-        init(_ parent: FocusableTextEditor) {
-            self.parent = parent
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            parent.text = textView.string
-        }
-    }
-}
-
-/// Custom NSTextView that reports focus changes
-class FocusableNSTextView: NSTextView {
-    var onFocusChange: ((Bool) -> Void)?
-
-    override func becomeFirstResponder() -> Bool {
-        let result = super.becomeFirstResponder()
-        if result {
-            onFocusChange?(true)
-        }
-        return result
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let result = super.resignFirstResponder()
-        if result {
-            onFocusChange?(false)
-        }
-        return result
-    }
-}
