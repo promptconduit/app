@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftTerm
 
 // MARK: - Design Tokens (Tokyo Night theme)
 
@@ -1569,24 +1568,22 @@ struct UnifiedDashboardView: View {
             Divider()
                 .background(TokyoNight.borderColor)
 
-            // Terminal grid or completion state
+            // Launcher view or completion state
             if group.isActive {
-                // Show live terminals
-                // Pass prompt only if not yet sent
+                // Show launcher (opens Claude in native Terminal.app)
                 let promptToSend = group.promptSent ? nil : group.prompt
-                MultiTerminalGridView(
+                SessionGroupLauncherView(
                     groupId: group.id,
                     repositories: group.repoPaths,
-                    layout: group.layout,
                     initialPrompt: promptToSend,
                     onClose: {
                         archiveGroup(group.id)
                         selectedGroupId = nil
                     }
                 )
-                .id(group.id)  // Force view recreation when switching groups
+                .id(group.id)
                 .onAppear {
-                    // Mark prompt as sent when the grid appears
+                    // Mark prompt as sent when the launcher appears
                     if !group.promptSent {
                         settings.updateSessionGroup(id: group.id) { g in
                             g.markPromptSent()
