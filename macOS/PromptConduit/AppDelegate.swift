@@ -23,14 +23,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize notification service for waiting state alerts
         NotificationService.shared.setup()
 
-        // Initialize hook notification service for CLI hook events
-        HookNotificationService.shared.startListening()
+        // Install hooks for fast event notifications (hybrid approach)
+        // Hooks provide immediate notifications, JSONL provides authoritative state
+        installHooksIfNeeded()
+
+        // Start JSONL session monitoring for state tracking
+        ClaudeSessionDiscovery.shared.startMonitoring()
 
         // Archive stale session groups from previous sessions that no longer have running processes
         SettingsService.shared.archiveStaleSessionGroups()
 
         // Hide dock icon (menu bar app only)
         NSApp.setActivationPolicy(.accessory)
+    }
+
+    /// Installs Claude Code hooks for fast event notifications
+    private func installHooksIfNeeded() {
+        let hookManager = ClaudeCodeHookManager.shared
+
+        // Check if hooks are already installed
+        if hookManager.areHooksInstalled() {
+            print("[AppDelegate] Hooks already installed")
+            return
+        }
+
+        // Install hooks
+        switch hookManager.installHooks() {
+        case .success:
+            print("[AppDelegate] Hooks installed successfully")
+        case .failure(let error):
+            print("[AppDelegate] Failed to install hooks: \(error.localizedDescription)")
+            // Continue without hooks - JSONL will still work as fallback
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -145,11 +169,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         dashboardItem.keyEquivalentModifierMask = [.command, .shift]
         dashboardItem.target = self
         menu.addItem(dashboardItem)
-
-        let reposItem = NSMenuItem(title: "Repositories...", action: #selector(showReposWindow), keyEquivalent: "r")
-        reposItem.keyEquivalentModifierMask = [.command, .shift]
-        reposItem.target = self
-        menu.addItem(reposItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -477,13 +496,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             agentPanelController = AgentPanelController()
         }
         agentPanelController?.showPanel(for: session)
-    }
-
-    @objc private func showReposWindow() {
-        if agentPanelController == nil {
-            agentPanelController = AgentPanelController()
-        }
-        agentPanelController?.showRepositoriesPanel()
     }
 
     @objc private func showSessionsDashboard() {

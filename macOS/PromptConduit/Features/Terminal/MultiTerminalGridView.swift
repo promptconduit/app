@@ -104,8 +104,7 @@ struct MultiTerminalGridView: View {
         }
         .onAppear {
             setupSessions()
-            // Ensure hook service is listening (TerminalSessionManager handles the events)
-            HookNotificationService.shared.startListening()
+            // JSONL monitoring is handled by ClaudeSessionDiscovery (started in AppDelegate)
             // Sync broadcast state in case it was already enabled
             isBroadcastEnabled = terminalManager.isBroadcastEnabled(for: groupId)
 
@@ -367,11 +366,16 @@ struct MultiTerminalGridView: View {
         // Longer delay to ensure Claude's TUI is fully ready for input
         // Claude Code needs time to initialize its input field after showing welcome screen
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            print("[MultiTerminalGrid] Sending prompt with Enter: '\(trimmedPrompt)'")
-            // Send prompt text followed by carriage return (Enter)
-            // Sending together ensures they arrive as a unit
-            terminal.send(txt: trimmedPrompt + "\r")
-            print("[MultiTerminalGrid] Prompt with Enter sent")
+            print("[MultiTerminalGrid] Sending prompt: '\(trimmedPrompt)'")
+            terminal.send(txt: trimmedPrompt)
+
+            // Send Enter key after a small delay
+            // Use raw byte 13 (CR) which is what terminal Enter key produces
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                print("[MultiTerminalGrid] Sending Enter (raw byte 13)")
+                terminal.send([13])  // Raw carriage return byte
+                print("[MultiTerminalGrid] Enter sent")
+            }
         }
     }
 }

@@ -65,10 +65,11 @@ class ProcessDetectionService: ObservableObject {
         // Initial scan
         refreshProcesses()
 
-        // Periodic refresh every 3 seconds - must be on main thread for timer to work
+        // Periodic refresh every 30 seconds - must be on main thread for timer to work
+        // Note: Longer interval to avoid CPU spikes when many Claude processes are running
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            self.timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            self.timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
                 self?.refreshProcesses()
             }
             if let timer = self.timer {
@@ -117,8 +118,14 @@ class ProcessDetectionService: ObservableObject {
 
             guard let output = String(data: data, encoding: .utf8) else { return [] }
 
-            // Parse each line
-            for line in output.components(separatedBy: "\n") {
+            // Parse each line - limit to 10 processes to avoid CPU spikes
+            let lines = output.components(separatedBy: "\n")
+            var processCount = 0
+            let maxProcesses = 10
+
+            for line in lines {
+                guard processCount < maxProcesses else { break }
+
                 if let process = parseProcessLine(line) {
                     // Exclude PIDs managed by PromptConduit
                     guard !managedPIDs.contains(process.id) else { continue }
@@ -127,6 +134,7 @@ class ProcessDetectionService: ObservableObject {
                     guard !managedWorkingDirectories.contains(process.workingDirectory) else { continue }
 
                     processes.append(process)
+                    processCount += 1
                 }
             }
         } catch {

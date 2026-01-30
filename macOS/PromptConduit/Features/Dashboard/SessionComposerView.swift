@@ -280,14 +280,17 @@ struct SessionComposerView: View {
             HStack(alignment: .bottom, spacing: 12) {
                 // Text input
                 ZStack(alignment: .topLeading) {
+                    // Placeholder text
                     if prompt.isEmpty {
                         Text("What would you like Claude to help with?")
                             .font(.system(size: 14))
                             .foregroundColor(TokyoNight.textMuted)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 8)
+                            .allowsHitTesting(false)
                     }
 
+                    // Standard TextEditor - simpler and avoids focus-related CPU spikes
                     TextEditor(text: $prompt)
                         .font(.system(size: 14))
                         .foregroundColor(TokyoNight.textPrimary)
@@ -506,3 +509,4 @@ private struct QuickStartCommandChip: View {
         .help(command.description ?? command.name)
     }
 }
+

@@ -255,82 +255,10 @@ final class TerminalOutputMonitorTests: XCTestCase {
         XCTAssertFalse(monitor.isWaiting)
     }
 
-    // MARK: - Hook-Managed Tests
-
-    func testSetHookManagedMarksSessionAsHookManaged() {
-        let monitor = TerminalOutputMonitor()
-
-        XCTAssertFalse(monitor.isHookManaged, "Should not be hook-managed initially")
-
-        monitor.setHookManaged()
-
-        XCTAssertTrue(monitor.isHookManaged, "Should be hook-managed after setHookManaged()")
-    }
-
-    func testHookManagedSessionIgnoresOutputBasedStateChanges() {
-        let monitor = TerminalOutputMonitor()
-        var stateChanges: [Bool] = []
-
-        monitor.onWaitingStateChanged = { isWaiting in
-            stateChanges.append(isWaiting)
-        }
-
-        // Mark as hook-managed
-        monitor.setHookManaged()
-
-        // Try to change state via setWaiting (output-based) - should be ignored
-        monitor.setWaiting(true)
-        monitor.setWaiting(false)
-        monitor.setWaiting(true)
-
-        XCTAssertTrue(stateChanges.isEmpty, "Hook-managed session should ignore output-based state changes")
-        XCTAssertFalse(monitor.isWaiting, "isWaiting should remain unchanged")
-    }
-
-    func testForceSetWaitingWorksOnHookManagedSession() {
-        let monitor = TerminalOutputMonitor()
-        var stateChanges: [Bool] = []
-        let expectation = self.expectation(description: "Callback received")
-
-        monitor.onWaitingStateChanged = { isWaiting in
-            stateChanges.append(isWaiting)
-            expectation.fulfill()
-        }
-
-        // Mark as hook-managed
-        monitor.setHookManaged()
-
-        // Force set state (hook-based) - should work
-        monitor.forceSetWaiting(true)
-
-        wait(for: [expectation], timeout: 1.0)
-        XCTAssertEqual(stateChanges, [true], "forceSetWaiting should work on hook-managed session")
-        XCTAssertTrue(monitor.isWaiting)
-    }
-
-    func testForceSetWaitingStateTransitions() {
-        let monitor = TerminalOutputMonitor()
-        var stateChanges: [Bool] = []
-        let expectation = self.expectation(description: "Callbacks received")
-        expectation.expectedFulfillmentCount = 3
-
-        monitor.onWaitingStateChanged = { isWaiting in
-            stateChanges.append(isWaiting)
-            expectation.fulfill()
-        }
-
-        // Mark as hook-managed
-        monitor.setHookManaged()
-
-        // Simulate hook events: SessionStart -> UserPromptSubmit -> Stop
-        monitor.forceSetWaiting(true)   // SessionStart: waiting
-        monitor.forceSetWaiting(false)  // UserPromptSubmit: running
-        monitor.forceSetWaiting(true)   // Stop: waiting again
-
-        wait(for: [expectation], timeout: 1.0)
-        XCTAssertEqual(stateChanges, [true, false, true], "Should track all hook-based state changes")
-        XCTAssertTrue(monitor.isWaiting)
-    }
+    // MARK: - Hook-Managed Tests (Removed)
+    // Note: Hook-managed tests have been removed as we've moved to the hybrid
+    // hooks + JSONL approach. State management is now handled by
+    // TerminalSessionManager using HookNotificationService and ClaudeSessionDiscovery.
 
     func testForceSetWaitingAlwaysUpdates() {
         let monitor = TerminalOutputMonitor()
