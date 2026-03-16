@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftTerm
 import AppKit
 
 // MARK: - Design Tokens
@@ -367,13 +366,13 @@ struct MultiTerminalGridView: View {
         // Claude Code needs time to initialize its input field after showing welcome screen
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             print("[MultiTerminalGrid] Sending prompt: '\(trimmedPrompt)'")
-            terminal.send(txt: trimmedPrompt)
+            terminal.sendText(trimmedPrompt)
 
             // Send Enter key after a small delay
             // Use raw byte 13 (CR) which is what terminal Enter key produces
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 print("[MultiTerminalGrid] Sending Enter (raw byte 13)")
-                terminal.send([13])  // Raw carriage return byte
+                terminal.sendBytes([13])  // Raw carriage return byte
                 print("[MultiTerminalGrid] Enter sent")
             }
         }

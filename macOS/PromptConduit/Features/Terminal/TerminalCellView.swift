@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftTerm
 import UniformTypeIdentifiers
 
 // MARK: - Design Tokens
@@ -28,13 +27,13 @@ struct TerminalCellView: View {
     let isBroadcastEnabled: Bool
     let onFocus: () -> Void
     let onTerminated: () -> Void
-    let onTerminalReady: (LocalProcessTerminalView) -> Void
+    let onTerminalReady: (GhosttyTerminalView) -> Void
     var onClaudeReady: (() -> Void)? = nil
 
     @ObservedObject private var terminalManager = TerminalSessionManager.shared
     @State private var isTerminated = false
     @State private var isDragOver = false
-    @State private var terminalView: LocalProcessTerminalView? = nil
+    @State private var terminalView: GhosttyTerminalView? = nil
 
     private let imageService = ImageAttachmentService.shared
 
@@ -251,7 +250,7 @@ struct TerminalCellView: View {
     /// Inserts the image path into the terminal input
     private func insertIntoTerminal(_ path: String) {
         let textToInsert = "@\(path) "
-        terminalView?.send(txt: textToInsert)
+        terminalView?.sendText(textToInsert)
     }
 
     /// Checks if a URL points to an image file
