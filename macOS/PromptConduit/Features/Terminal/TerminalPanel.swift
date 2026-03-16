@@ -1,61 +1,31 @@
 import AppKit
-import SwiftTerm
 
 /// Custom NSPanel for terminal sessions that intercepts image paste (Cmd+V)
 /// When the clipboard contains an image, saves it to temp and inserts the path
-/// Otherwise, passes the paste event through to SwiftTerm normally
+/// Otherwise, passes the paste event through to Ghostty normally
 class TerminalPanel: NSPanel {
     /// Callback when an image is pasted - receives the formatted path to insert
     var onImagePaste: ((String) -> Void)?
 
     /// Reference to the terminal view for direct text insertion
-    weak var terminalView: LocalProcessTerminalView?
+    weak var terminalView: GhosttyTerminalView?
 
     private let imageService = ImageAttachmentService.shared
 
     override func sendEvent(_ event: NSEvent) {
-        // Intercept Cmd+C and Cmd+V before they reach SwiftTerm's keyDown
-        // (SwiftTerm's keyDown clears selection before processing, so we must handle copy first)
-
         if event.type == .keyDown,
            event.modifierFlags.contains(.command) {
 
             let key = event.charactersIgnoringModifiers?.lowercased()
 
-            // Handle Cmd+C (copy) - must intercept before SwiftTerm clears selection in keyDown
+            // Handle Cmd+C (copy) — Ghostty handles selection natively
             if key == "c" {
                 if let terminal = terminalView ?? findTerminalView(in: contentView ?? NSView()) {
-                    // Try getSelection first (SwiftTerm's native method)
-                    if let selectedText = terminal.getSelection(), !selectedText.isEmpty {
+                    if let selectedText = terminal.getSelectedText() {
                         let pasteboard = NSPasteboard.general
                         pasteboard.clearContents()
                         pasteboard.setString(selectedText, forType: .string)
                         return // Don't pass to terminal
-                    }
-
-                    // Workaround #1: Use our tracked selection coordinates
-                    if let monitoredTerminal = terminal as? MonitoredTerminalView,
-                       let trackedText = monitoredTerminal.getTrackedSelectionText() {
-                        let pasteboard = NSPasteboard.general
-                        pasteboard.clearContents()
-                        pasteboard.setString(trackedText, forType: .string)
-                        return // Don't pass to terminal
-                    }
-
-                    // Workaround #2: SwiftTerm's getSelection() returns empty even when selection is active
-                    // Fall back to copying visible terminal content
-                    if terminal.selectionActive {
-                        let term = terminal.getTerminal()
-                        let startPos = Position(col: 0, row: 0)
-                        let endPos = Position(col: term.cols - 1, row: term.rows - 1)
-                        let directText = term.getText(start: startPos, end: endPos)
-                        let trimmedText = directText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmedText.isEmpty {
-                            let pasteboard = NSPasteboard.general
-                            pasteboard.clearContents()
-                            pasteboard.setString(trimmedText, forType: .string)
-                            return // Don't pass to terminal
-                        }
                     }
                 }
             }
@@ -75,23 +45,18 @@ class TerminalPanel: NSPanel {
 
     /// Handles pasting an image from the clipboard
     private func handleImagePaste() {
-        // Save image from pasteboard
         guard let savedURL = imageService.saveImageFromPasteboard() else {
-            // No image found, play error sound
             NSSound.beep()
             return
         }
 
-        // Format path for terminal
         let formattedPath = imageService.formatPathForTerminal(savedURL)
         let textToInsert = " \(formattedPath) "
 
-        // Insert directly into terminal if available
         if let terminal = terminalView {
-            terminal.send(txt: textToInsert)
+            terminal.sendText(textToInsert)
         }
 
-        // Also notify via callback
         onImagePaste?(textToInsert)
     }
 
@@ -103,9 +68,9 @@ class TerminalPanel: NSPanel {
         }
     }
 
-    /// Recursively finds LocalProcessTerminalView in view hierarchy
-    private func findTerminalView(in view: NSView) -> LocalProcessTerminalView? {
-        if let terminal = view as? LocalProcessTerminalView {
+    /// Recursively finds GhosttyTerminalView in view hierarchy
+    private func findTerminalView(in view: NSView) -> GhosttyTerminalView? {
+        if let terminal = view as? GhosttyTerminalView {
             return terminal
         }
 
@@ -131,22 +96,20 @@ class TerminalWindow: NSWindow {
     var groupId: UUID?
 
     override func sendEvent(_ event: NSEvent) {
-        // Handle keyDown events
         if event.type == .keyDown {
-            // Check for command key combinations
             if event.modifierFlags.contains(.command) {
                 let key = event.charactersIgnoringModifiers?.lowercased()
 
                 // Handle Cmd+B (broadcast toggle)
                 if key == "b" {
                     handleBroadcastToggle()
-                    return // Don't pass to terminal
+                    return
                 }
 
-                // Handle Cmd+C (copy) - must intercept before SwiftTerm clears selection in keyDown
+                // Handle Cmd+C (copy) — single getSelectedText() call, no workarounds
                 if key == "c" {
                     if handleCopy() {
-                        return // Copy succeeded, don't pass to terminal
+                        return
                     }
                 }
 
@@ -154,9 +117,8 @@ class TerminalWindow: NSWindow {
                 if key == "v" {
                     if imageService.pasteboardContainsImage() {
                         handleImagePaste()
-                        return // Don't pass to terminal
+                        return
                     }
-                    // For text paste in broadcast mode, broadcast the clipboard text
                     if let groupId = groupId, terminalManager.isBroadcastEnabled(for: groupId) {
                         if let text = NSPasteboard.general.string(forType: .string) {
                             terminalManager.broadcastToGroup(groupId, text: text)
@@ -167,14 +129,12 @@ class TerminalWindow: NSWindow {
             } else {
                 // Non-command key - check for broadcast mode
                 if let groupId = groupId, terminalManager.isBroadcastEnabled(for: groupId) {
-                    // Broadcast this key event to all terminals in the group
                     terminalManager.broadcastKeyEventToGroup(groupId, event: event)
-                    return // Don't pass to the focused terminal (it already got the event via broadcast)
+                    return
                 }
             }
         }
 
-        // Pass all other events through normally
         super.sendEvent(event)
     }
 
@@ -187,48 +147,21 @@ class TerminalWindow: NSWindow {
         terminalManager.toggleBroadcast(for: groupId)
     }
 
-    /// Handles copying selected text from the focused terminal
-    /// Returns true if copy was handled, false otherwise
+    /// Handles copying selected text from the focused terminal.
+    /// Returns true if copy was handled.
     private func handleCopy() -> Bool {
-        // Find the focused terminal view (first responder in hierarchy)
         guard let terminal = findFocusedTerminal() else {
-            return false // No terminal found, let event pass through
+            return false
         }
 
-        // Try getSelection first (SwiftTerm's native method)
-        if let selectedText = terminal.getSelection(), !selectedText.isEmpty {
+        if let selectedText = terminal.getSelectedText() {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(selectedText, forType: .string)
             return true
         }
 
-        // Workaround #1: Use our tracked selection coordinates
-        if let monitoredTerminal = terminal as? MonitoredTerminalView,
-           let trackedText = monitoredTerminal.getTrackedSelectionText() {
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(trackedText, forType: .string)
-            return true
-        }
-
-        // Workaround #2: SwiftTerm's getSelection() returns empty even when selection is active
-        // Fall back to copying visible terminal content
-        if terminal.selectionActive {
-            let term = terminal.getTerminal()
-            let startPos = Position(col: 0, row: 0)
-            let endPos = Position(col: term.cols - 1, row: term.rows - 1)
-            let directText = term.getText(start: startPos, end: endPos)
-            let trimmedText = directText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedText.isEmpty {
-                let pasteboard = NSPasteboard.general
-                pasteboard.clearContents()
-                pasteboard.setString(trimmedText, forType: .string)
-                return true
-            }
-        }
-
-        return false // No selection, let event pass through
+        return false
     }
 
     /// Handles pasting an image from the clipboard into the focused terminal
@@ -245,14 +178,12 @@ class TerminalWindow: NSWindow {
 
         let formattedPath = imageService.formatPathForTerminal(savedURL)
         let textToInsert = " \(formattedPath) "
-        terminal.send(txt: textToInsert)
+        terminal.sendText(textToInsert)
     }
 
-    /// Finds the focused LocalProcessTerminalView in the window
-    /// Checks first responder and its hierarchy
-    private func findFocusedTerminal() -> LocalProcessTerminalView? {
-        // Check if first responder is a terminal
-        if let terminal = firstResponder as? LocalProcessTerminalView {
+    /// Finds the focused GhosttyTerminalView in the window
+    private func findFocusedTerminal() -> GhosttyTerminalView? {
+        if let terminal = firstResponder as? GhosttyTerminalView {
             return terminal
         }
 
@@ -260,31 +191,29 @@ class TerminalWindow: NSWindow {
         if let responderView = firstResponder as? NSView {
             var view: NSView? = responderView
             while let current = view {
-                if let terminal = current as? LocalProcessTerminalView {
+                if let terminal = current as? GhosttyTerminalView {
                     return terminal
                 }
                 view = current.superview
             }
         }
 
-        // Fallback: search content view hierarchy for any terminal with selection
+        // Fallback: search content view hierarchy
         if let contentView = self.contentView {
-            return findTerminalWithSelection(in: contentView)
+            return findTerminalInHierarchy(contentView)
         }
 
         return nil
     }
 
-    /// Recursively finds a LocalProcessTerminalView that has a selection
-    private func findTerminalWithSelection(in view: NSView) -> LocalProcessTerminalView? {
-        if let terminal = view as? LocalProcessTerminalView,
-           let selection = terminal.getSelection(),
-           !selection.isEmpty {
+    /// Recursively finds a GhosttyTerminalView in the hierarchy
+    private func findTerminalInHierarchy(_ view: NSView) -> GhosttyTerminalView? {
+        if let terminal = view as? GhosttyTerminalView {
             return terminal
         }
 
         for subview in view.subviews {
-            if let found = findTerminalWithSelection(in: subview) {
+            if let found = findTerminalInHierarchy(subview) {
                 return found
             }
         }
@@ -309,7 +238,6 @@ class TerminalPanelDelegate: NSObject, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        // When panel becomes key, find and store terminal view reference
         if let panel = notification.object as? TerminalPanel {
             panel.findAndStoreTerminalView()
         }

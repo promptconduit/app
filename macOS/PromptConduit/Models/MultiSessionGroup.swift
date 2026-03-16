@@ -1,5 +1,4 @@
 import Foundation
-import SwiftTerm
 
 /// Tracks a group of terminal sessions launched together
 class MultiSessionGroup: ObservableObject, Identifiable {
@@ -48,7 +47,7 @@ class MultiSessionGroup: ObservableObject, Identifiable {
     }
 
     /// Update a session's terminal view reference
-    func setTerminalView(_ view: LocalProcessTerminalView?, for sessionId: UUID) {
+    func setTerminalView(_ view: GhosttyTerminalView?, for sessionId: UUID) {
         if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
             sessions[index].terminalView = view
         }
@@ -73,7 +72,7 @@ class MultiSessionGroup: ObservableObject, Identifiable {
     func broadcast(text: String) {
         guard broadcastEnabled else { return }
         for session in sessions where session.isRunning {
-            session.terminalView?.send(txt: text)
+            session.terminalView?.sendText(text)
         }
     }
 }
@@ -86,7 +85,7 @@ struct MultiSessionEntry: Identifiable {
 
     var isRunning: Bool = true
     var isWaiting: Bool = false
-    weak var terminalView: LocalProcessTerminalView?
+    weak var terminalView: GhosttyTerminalView?
 
     init(
         id: UUID = UUID(),

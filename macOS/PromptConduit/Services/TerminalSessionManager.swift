@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import SwiftTerm
 import AppKit
 
 /// Information about a terminal session launched from PromptConduit
@@ -12,7 +11,7 @@ struct TerminalSessionInfo: Identifiable {
     var isWaiting: Bool = true  // Default to waiting (Claude starts ready for input)
     var groupId: UUID? = nil  // For multi-session groups
     var claudeSessionId: String? = nil  // Claude Code's session ID for reliable matching
-    weak var terminalView: LocalProcessTerminalView? = nil
+    weak var terminalView: GhosttyTerminalView? = nil
     let launchTime: Date  // When this terminal was launched (for session association)
 
     // MARK: - Prompt Management (Single Source of Truth)
@@ -265,9 +264,7 @@ class TerminalSessionManager: ObservableObject {
         }
 
         // Try matching by working directory + file creation time
-        // Look for sessions in the same repo that were CREATED after our terminal launched
         for group in groups {
-            // Check if the terminal's working directory matches this group's repo
             let repoPath = group.id
             guard session.workingDirectory == repoPath ||
                   session.workingDirectory.hasPrefix(repoPath + "/") ||
@@ -275,30 +272,22 @@ class TerminalSessionManager: ObservableObject {
                 continue
             }
 
-            // Find sessions whose FILE was CREATED after our terminal was launched
-            // This is more reliable than lastActivity (modification time) because
-            // old sessions might have recent activity from other Claude instances
-            let matchWindow = session.launchTime.addingTimeInterval(-5) // Small buffer for timing
+            let matchWindow = session.launchTime.addingTimeInterval(-5)
             var candidateSessions: [(session: DiscoveredSession, creationDate: Date)] = []
 
             for discovered in group.sessions {
-                // Skip sessions that have already been claimed by another terminal
-                // This ensures each terminal gets its own unique Claude session
                 if claimedClaudeSessionIds.contains(discovered.id) {
                     continue
                 }
 
-                // Get file creation time
                 if let attrs = try? FileManager.default.attributesOfItem(atPath: discovered.filePath),
                    let creationDate = attrs[.creationDate] as? Date {
-                    // Only consider sessions created after our terminal launched
                     if creationDate >= matchWindow {
                         candidateSessions.append((discovered, creationDate))
                     }
                 }
             }
 
-            // Return the session created closest to our launch time
             if let best = candidateSessions.sorted(by: { $0.creationDate < $1.creationDate }).first {
                 return best.session
             }
@@ -309,17 +298,14 @@ class TerminalSessionManager: ObservableObject {
 
     /// Handles when a discovered session becomes waiting
     private func handleSessionBecameWaiting(_ discoveredSession: DiscoveredSession) {
-        // Find the terminal session associated with this discovered session
         for i in sessions.indices {
             let session = sessions[i]
 
-            // Match by claudeSessionId or by working directory
             let matches = session.claudeSessionId == discoveredSession.id ||
                           session.workingDirectory == discoveredSession.repoPath ||
                           session.workingDirectory.hasPrefix(discoveredSession.repoPath + "/")
 
             if matches {
-                // Mark session as ready for prompt if it has a pending prompt
                 if sessions[i].pendingPrompt != nil && !sessions[i].promptSent && !sessions[i].isReadyForPrompt {
                     sessions[i].isReadyForPrompt = true
                     sessionsReadyForPrompt.insert(session.id)
@@ -331,14 +317,12 @@ class TerminalSessionManager: ObservableObject {
 
     /// Finds session by Claude session ID first, then by cwd/directory name
     private func findSessionIndex(cwd: String, sessionId: String?) -> Int? {
-        // Try Claude session ID first (most reliable)
         if let sessionId = sessionId, !sessionId.isEmpty {
             if let index = sessions.firstIndex(where: { $0.claudeSessionId == sessionId }) {
                 return index
             }
         }
 
-        // Try exact cwd match - prefer sessions with pending prompts
         if let index = sessions.firstIndex(where: { $0.workingDirectory == cwd && $0.pendingPrompt != nil && !$0.promptSent }) {
             return index
         }
@@ -346,7 +330,6 @@ class TerminalSessionManager: ObservableObject {
             return index
         }
 
-        // Try prefix match
         if let index = sessions.firstIndex(where: { cwd.hasPrefix($0.workingDirectory + "/") && $0.pendingPrompt != nil && !$0.promptSent }) {
             return index
         }
@@ -360,14 +343,7 @@ class TerminalSessionManager: ObservableObject {
     // MARK: - Session Management
 
     /// Registers a new terminal session
-    /// - Parameters:
-    ///   - id: Unique session ID
-    ///   - repoName: Display name for the repository
-    ///   - workingDirectory: Full path to the working directory
-    ///   - groupId: Optional group ID for multi-session groups
-    ///   - pendingPrompt: Optional prompt to send when session becomes ready
     func registerSession(id: UUID, repoName: String, workingDirectory: String, groupId: UUID? = nil, pendingPrompt: String? = nil) {
-        // Log registration
         let logPath = "/tmp/promptconduit-terminal.log"
         let regMsg = "[REG] registerSession: id=\(id.uuidString.prefix(8)), repo=\(repoName), wd=\(workingDirectory), groupId=\(groupId?.uuidString.prefix(8) ?? "nil"), hasPrompt=\(pendingPrompt != nil)\n"
         if let handle = FileHandle(forWritingAtPath: logPath) {
@@ -382,9 +358,9 @@ class TerminalSessionManager: ObservableObject {
             repoName: repoName,
             workingDirectory: workingDirectory,
             isRunning: true,
-            isWaiting: true,  // Default to waiting (Claude starts ready for input)
+            isWaiting: true,
             groupId: groupId,
-            launchTime: Date()  // Record launch time for JSONL session association
+            launchTime: Date()
         )
         session.pendingPrompt = pendingPrompt
 
@@ -401,14 +377,12 @@ class TerminalSessionManager: ObservableObject {
         ProcessDetectionService.shared.registerManagedWorkingDirectory(workingDirectory)
 
         // Trigger a refresh of ClaudeSessionDiscovery to pick up any existing sessions
-        // This helps associate the terminal with an existing Claude session if one exists
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             ClaudeSessionDiscovery.shared.refreshStatuses()
         }
 
         // Fallback: If session has a pending prompt and no JSONL association happens,
-        // mark it as ready after a delay. This handles new Claude sessions that haven't
-        // written any JSONL events yet (the welcome screen doesn't write to JSONL).
+        // mark it as ready after a delay.
         if pendingPrompt != nil {
             let sessionIdCopy = id
             DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
@@ -418,19 +392,12 @@ class TerminalSessionManager: ObservableObject {
     }
 
     /// Marks a session as ready for prompt if it still has a pending prompt that hasn't been sent.
-    /// This is a fallback for when JSONL-based detection doesn't find a matching session
-    /// (e.g., brand new Claude sessions that haven't written any JSONL yet).
     private func markReadyIfStillPending(_ sessionId: UUID) {
         let logPath = "/tmp/promptconduit-terminal.log"
 
         guard let index = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
         let session = sessions[index]
 
-        // Only mark ready if:
-        // 1. Has a pending prompt
-        // 2. Prompt hasn't been sent yet
-        // 3. Not already marked as ready
-        // 4. Terminal view exists (terminal is initialized)
         guard session.pendingPrompt != nil,
               !session.promptSent,
               !session.isReadyForPrompt,
@@ -451,7 +418,7 @@ class TerminalSessionManager: ObservableObject {
     }
 
     /// Updates the terminal view reference for a session
-    func updateTerminalView(_ id: UUID, terminalView: LocalProcessTerminalView?) {
+    func updateTerminalView(_ id: UUID, terminalView: GhosttyTerminalView?) {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         sessions[index].terminalView = terminalView
     }
@@ -464,22 +431,19 @@ class TerminalSessionManager: ObservableObject {
     // MARK: - Prompt Management (Single Source of Truth)
 
     /// Gets the pending prompt for a session, if any
-    /// Returns nil if prompt was already sent to prevent duplicate sends
     func getPendingPrompt(for sessionId: UUID) -> String? {
         guard let session = sessions.first(where: { $0.id == sessionId }) else { return nil }
-        // Check promptSent to prevent duplicate sends from race conditions
         guard !session.promptSent else { return nil }
         return session.pendingPrompt
     }
 
     /// Gets the terminal view for a session
-    func getTerminalView(for sessionId: UUID) -> LocalProcessTerminalView? {
+    func getTerminalView(for sessionId: UUID) -> GhosttyTerminalView? {
         guard let session = sessions.first(where: { $0.id == sessionId }) else { return nil }
         return session.terminalView
     }
 
     /// Marks that a prompt has been sent to a session
-    /// Called by views after successfully sending the prompt
     func markPromptSent(_ sessionId: UUID) {
         let logPath = "/tmp/promptconduit-terminal.log"
 
@@ -500,7 +464,6 @@ class TerminalSessionManager: ObservableObject {
 
     /// Marks a session as terminated (process ended naturally)
     func markTerminated(_ id: UUID) {
-        // Ignore callbacks during cleanup to prevent crashes
         guard !isCleaningUp else { return }
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
 
@@ -509,19 +472,15 @@ class TerminalSessionManager: ObservableObject {
         sessions[index].isRunning = false
         sessions[index].isWaiting = false
 
-        // Update SessionGroup status if this session belongs to a group
         if let groupId = groupId {
             updateSessionGroupStatus(groupId)
         }
-        // Note: We keep the working directory registered until the session is removed
-        // so it doesn't appear in external list while window is still open
     }
 
     // MARK: - Waiting State Management
 
     /// Updates the waiting state for a session
     func updateWaitingState(_ id: UUID, isWaiting: Bool) {
-        // Log to file for debugging
         let logPath = "/tmp/promptconduit-terminal.log"
         let logMsg = "[TSM] updateWaitingState called: id=\(id.uuidString.prefix(8)), isWaiting=\(isWaiting)\n"
         if let handle = FileHandle(forWritingAtPath: logPath) {
@@ -530,7 +489,6 @@ class TerminalSessionManager: ObservableObject {
             handle.closeFile()
         }
 
-        // Ignore callbacks during cleanup to prevent crashes
         guard !isCleaningUp else { return }
         guard let index = sessions.firstIndex(where: { $0.id == id }) else {
             let errMsg = "[TSM] Session not found for id: \(id.uuidString.prefix(8))\n"
@@ -560,16 +518,13 @@ class TerminalSessionManager: ObservableObject {
                 groupId: session.groupId
             )
         } else if !isWaiting && wasWaiting {
-            // Cancel notification when no longer waiting
             NotificationService.shared.cancelNotification(for: id)
         }
 
-        // Update SessionGroup status if this session belongs to a group
         if let groupId = sessions[index].groupId {
             updateSessionGroupStatus(groupId)
         }
 
-        // Notify observers of state change
         objectWillChange.send()
     }
 
@@ -577,11 +532,9 @@ class TerminalSessionManager: ObservableObject {
     private func updateSessionGroupStatus(_ groupId: UUID) {
         let groupSessions = sessions.filter { $0.groupId == groupId }
 
-        // Count running and waiting sessions
         let runningCount = groupSessions.filter { $0.isRunning && !$0.isWaiting }.count
         let waitingCount = groupSessions.filter { $0.isRunning && $0.isWaiting }.count
 
-        // Log for debugging
         let logPath = "/tmp/promptconduit-terminal.log"
         let logMsg = "[TSM] updateSessionGroupStatus: groupId=\(groupId.uuidString.prefix(8)), running=\(runningCount), waiting=\(waitingCount)\n"
         if let handle = FileHandle(forWritingAtPath: logPath) {
@@ -590,7 +543,6 @@ class TerminalSessionManager: ObservableObject {
             handle.closeFile()
         }
 
-        // Update the SessionGroup in SettingsService
         SettingsService.shared.updateSessionGroup(id: groupId) { group in
             group.updateStatus(runningCount: runningCount, waitingCount: waitingCount)
         }
@@ -600,14 +552,12 @@ class TerminalSessionManager: ObservableObject {
     /// Kept for backward compatibility but does nothing
     func processOutput(_ id: UUID, text: String) {
         // State detection is now handled by JSONL monitoring
-        // This method is kept for API compatibility but no longer does anything
     }
 
     /// Focus a session window (bring to front)
     func focusSession(_ id: UUID) {
         guard let session = session(for: id) else { return }
 
-        // Post notification to bring the session's window to front
         NotificationCenter.default.post(
             name: .focusTerminalSession,
             object: nil,
@@ -619,7 +569,6 @@ class TerminalSessionManager: ObservableObject {
     func terminateSession(_ id: UUID) {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
 
-        // Set cleanup flag if not already set (for individual session termination)
         let wasCleaningUp = isCleaningUp
         if !wasCleaningUp {
             isCleaningUp = true
@@ -630,27 +579,20 @@ class TerminalSessionManager: ObservableObject {
             }
         }
 
-        // Capture session data before modifying array
         let session = sessions[index]
 
-        // Release claimed Claude session
         if let claudeId = session.claudeSessionId {
             claimedClaudeSessionIds.remove(claudeId)
         }
 
-        // Cancel any pending notifications
         NotificationService.shared.cancelNotification(for: id)
 
-        // Find and kill the process by working directory
-        // SwiftTerm's terminate() is internal, so we use POSIX kill
         if let pid = findClaudeProcessPID(workingDirectory: session.workingDirectory) {
             kill(pid, SIGTERM)
         }
 
-        // Unregister working directory
         ProcessDetectionService.shared.unregisterManagedWorkingDirectory(session.workingDirectory)
 
-        // Remove from sessions
         sessions.remove(at: index)
     }
 
@@ -658,17 +600,14 @@ class TerminalSessionManager: ObservableObject {
     func unregisterSession(_ id: UUID) {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
 
-        // Release claimed Claude session
         if let claudeId = sessions[index].claudeSessionId {
             claimedClaudeSessionIds.remove(claudeId)
         }
 
         sessions[index].terminalView = nil
 
-        // Cancel any pending notifications
         NotificationService.shared.cancelNotification(for: id)
 
-        // Unregister working directory
         ProcessDetectionService.shared.unregisterManagedWorkingDirectory(sessions[index].workingDirectory)
 
         sessions.remove(at: index)
@@ -676,19 +615,15 @@ class TerminalSessionManager: ObservableObject {
 
     /// Terminates all sessions
     func terminateAllSessions() {
-        // Set cleanup flag to prevent callbacks from modifying state during cleanup
         isCleaningUp = true
         defer { isCleaningUp = false }
 
-        // Take a snapshot of sessions to avoid issues during cleanup
         let allSessions = sessions
 
-        // Cancel notifications
         for session in allSessions {
             NotificationService.shared.cancelNotification(for: session.id)
         }
 
-        // Kill all processes
         for session in allSessions {
             if let pid = findClaudeProcessPID(workingDirectory: session.workingDirectory) {
                 kill(pid, SIGTERM)
@@ -696,7 +631,6 @@ class TerminalSessionManager: ObservableObject {
             ProcessDetectionService.shared.unregisterManagedWorkingDirectory(session.workingDirectory)
         }
 
-        // Clear all sessions and claimed IDs in one batch
         sessions.removeAll()
         sessionGroups.removeAll()
         claimedClaudeSessionIds.removeAll()
@@ -706,7 +640,6 @@ class TerminalSessionManager: ObservableObject {
 
     /// Finds the PID of a Claude process running in the specified working directory
     private func findClaudeProcessPID(workingDirectory: String) -> pid_t? {
-        // Use ps to find Claude processes
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/ps")
         task.arguments = ["-eo", "pid,command"]
@@ -722,7 +655,6 @@ class TerminalSessionManager: ObservableObject {
 
             guard let output = String(data: data, encoding: .utf8) else { return nil }
 
-            // Find Claude processes
             for line in output.components(separatedBy: "\n") {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 guard !trimmed.isEmpty,
@@ -732,7 +664,6 @@ class TerminalSessionManager: ObservableObject {
                 guard let pidString = components.first,
                       let pid = pid_t(pidString) else { continue }
 
-                // Verify this process is running in our working directory
                 if getProcessWorkingDirectory(pid) == workingDirectory {
                     return pid
                 }
@@ -794,31 +725,22 @@ class TerminalSessionManager: ObservableObject {
 
     /// Terminates all sessions in a group
     func terminateGroup(_ groupId: UUID) {
-        // Guard against double-cleanup - check if any sessions exist with this groupId
-        // Note: We check `sessions` not `sessionGroups` because sessions launched from
-        // the dashboard use SessionGroup IDs from SettingsService, not MultiSessionGroup IDs
         guard sessions.contains(where: { $0.groupId == groupId }) else {
-            // Also try removing from sessionGroups in case it was created via createSessionGroup
             sessionGroups.removeAll { $0.id == groupId }
             return
         }
 
-        // Set cleanup flag to prevent callbacks from modifying state during cleanup
         isCleaningUp = true
         defer { isCleaningUp = false }
 
-        // Remove the group first to prevent re-entry
         sessionGroups.removeAll { $0.id == groupId }
 
-        // Find all sessions in this group and collect their data before modifying the array
         let groupSessions = sessions.filter { $0.groupId == groupId }
 
-        // Cancel notifications
         for session in groupSessions {
             NotificationService.shared.cancelNotification(for: session.id)
         }
 
-        // Kill all processes
         let logPath = "/tmp/promptconduit-terminal.log"
         let logMsg = "[TSM] terminateGroup: groupId=\(groupId.uuidString.prefix(8)), killing \(groupSessions.count) sessions\n"
         if let handle = FileHandle(forWritingAtPath: logPath) {
@@ -847,7 +769,6 @@ class TerminalSessionManager: ObservableObject {
             ProcessDetectionService.shared.unregisterManagedWorkingDirectory(session.workingDirectory)
         }
 
-        // Remove all sessions from the array in one batch
         let idsToRemove = Set(groupSessions.map { $0.id })
         sessions.removeAll { idsToRemove.contains($0.id) }
     }
@@ -857,7 +778,7 @@ class TerminalSessionManager: ObservableObject {
         let groupSessions = sessions.filter { $0.groupId == groupId && $0.isRunning }
 
         for session in groupSessions {
-            session.terminalView?.send(txt: text)
+            session.terminalView?.sendText(text)
         }
     }
 
@@ -866,14 +787,13 @@ class TerminalSessionManager: ObservableObject {
         let groupSessions = sessions.filter { $0.groupId == groupId && $0.isRunning }
 
         for session in groupSessions {
-            session.terminalView?.keyDown(with: event)
+            session.terminalView?.forwardKeyEvent(event)
         }
     }
 
     // MARK: - Broadcast Mode
 
     /// Toggles broadcast mode for a group
-    /// Returns the new broadcast state
     @discardableResult
     func toggleBroadcast(for groupId: UUID) -> Bool {
         if broadcastEnabledGroups.contains(groupId) {

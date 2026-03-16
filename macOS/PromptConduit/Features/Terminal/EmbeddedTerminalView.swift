@@ -1,15 +1,14 @@
 import SwiftUI
 import AppKit
-import SwiftTerm
 
 
-/// A SwiftUI wrapper for SwiftTerm's LocalProcessTerminalView
+/// A SwiftUI wrapper for GhosttyTerminalView (GPU-accelerated terminal).
 struct EmbeddedTerminalView: NSViewRepresentable {
     let workingDirectory: String
     let command: String
     let arguments: [String]
     let onTerminated: (() -> Void)?
-    let onTerminalReady: ((LocalProcessTerminalView) -> Void)?
+    let onTerminalReady: ((GhosttyTerminalView) -> Void)?
     let onOutputReceived: ((String) -> Void)?
     let onClaudeReady: (() -> Void)?
 
@@ -18,7 +17,7 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         command: String? = nil,
         arguments: [String] = ["--dangerously-skip-permissions"],
         onTerminated: (() -> Void)? = nil,
-        onTerminalReady: ((LocalProcessTerminalView) -> Void)? = nil,
+        onTerminalReady: ((GhosttyTerminalView) -> Void)? = nil,
         onOutputReceived: ((String) -> Void)? = nil,
         onClaudeReady: (() -> Void)? = nil
     ) {
@@ -50,43 +49,18 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         return "claude"
     }
 
-    func makeNSView(context: Context) -> MonitoredTerminalView {
-        let terminalView = MonitoredTerminalView(frame: .zero)
-
-        // Configure terminal appearance with dark theme
-        let bgColor = NSColor(red: 0.06, green: 0.09, blue: 0.16, alpha: 1.0)
-        let fgColor = NSColor(red: 0.93, green: 0.94, blue: 0.96, alpha: 1.0)
-
-        terminalView.configureNativeColors()
-        terminalView.nativeForegroundColor = fgColor
-        terminalView.nativeBackgroundColor = bgColor
-        terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-
-        // Set the delegate for terminal events
-        terminalView.processDelegate = context.coordinator
+    func makeNSView(context: Context) -> GhosttyTerminalView {
+        let terminalView = GhosttyTerminalView(frame: .zero)
 
         // Set up output monitoring callbacks
-        let logPath = "/tmp/promptconduit-terminal.log"
-        let setupMsg = "[EmbeddedTerminalView] Setting up callbacks - onOutputReceived: \(onOutputReceived != nil)\n"
-        if let handle = FileHandle(forWritingAtPath: logPath) {
-            handle.seekToEndOfFile()
-            handle.write(setupMsg.data(using: .utf8)!)
-            handle.closeFile()
-        }
-        print("[EmbeddedTerminalView] Setting up callbacks - onOutputReceived: \(onOutputReceived != nil)")
-
         terminalView.onDataReceived = { [onOutputReceived] text in
-            // Log that callback was triggered
-            let logMsg = "[EmbeddedTerminalView] onDataReceived callback triggered, forwarding to onOutputReceived: \(onOutputReceived != nil)\n"
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                handle.seekToEndOfFile()
-                handle.write(logMsg.data(using: .utf8)!)
-                handle.closeFile()
-            }
             onOutputReceived?(text)
         }
         terminalView.onClaudeReady = { [onClaudeReady] in
             onClaudeReady?()
+        }
+        terminalView.onProcessTerminated = { [onTerminated] in
+            onTerminated?()
         }
 
         // Ensure the terminal can accept keyboard input
@@ -99,25 +73,21 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 
         // Build environment with user's PATH and proper terminal settings
         var environment = ProcessInfo.processInfo.environment
-        // Ensure common paths are in PATH for finding claude
         if let existingPath = environment["PATH"] {
             environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(existingPath)"
         }
-        // Set terminal type - xterm-256color is standard for modern terminals
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         environment["LANG"] = "en_US.UTF-8"
 
-        // Build shell command that changes to working directory then runs claude
-        // We use a shell to handle directory change since startProcess doesn't support it
-        let shellCommand = "cd \"\(workingDirectory)\" && \"\(command)\" \(arguments.joined(separator: " "))"
+        // Build shell command — quote each argument to prevent injection
+        let quotedArgs = arguments.map { "\"\($0)\"" }.joined(separator: " ")
+        let shellCommand = "cd \"\(workingDirectory)\" && \"\(command)\" \(quotedArgs)"
 
-        // Start the process via shell
+        // Start the process
         terminalView.startProcess(
-            executable: "/bin/zsh",
-            args: ["-l", "-c", shellCommand],
-            environment: Array(environment.map { "\($0.key)=\($0.value)" }),
-            execName: nil
+            shellCommand: shellCommand,
+            environment: Array(environment.map { "\($0.key)=\($0.value)" })
         )
 
         // Notify that terminal is ready
@@ -128,42 +98,8 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         return terminalView
     }
 
-    func updateNSView(_ nsView: MonitoredTerminalView, context: Context) {
+    func updateNSView(_ nsView: GhosttyTerminalView, context: Context) {
         // Nothing to update dynamically for now
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onTerminated: onTerminated, onTerminalReady: onTerminalReady)
-    }
-
-    class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
-        let onTerminated: (() -> Void)?
-        let onTerminalReady: ((LocalProcessTerminalView) -> Void)?
-
-        init(onTerminated: (() -> Void)?, onTerminalReady: ((LocalProcessTerminalView) -> Void)?) {
-            self.onTerminated = onTerminated
-            self.onTerminalReady = onTerminalReady
-        }
-
-        // From LocalProcessTerminalViewDelegate (uses LocalProcessTerminalView)
-        func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
-            // Terminal size changed
-        }
-
-        func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-            // Terminal title changed
-        }
-
-        // From TerminalViewDelegate (uses TerminalView)
-        func processTerminated(source: TerminalView, exitCode: Int32?) {
-            DispatchQueue.main.async {
-                self.onTerminated?()
-            }
-        }
-
-        func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-            // Current directory changed in the terminal
-        }
     }
 }
 
@@ -205,7 +141,7 @@ struct TerminalSessionView: View {
 
     @ObservedObject private var terminalManager = TerminalSessionManager.shared
     @State private var isTerminated = false
-    @State private var terminalView: LocalProcessTerminalView?
+    @State private var terminalView: GhosttyTerminalView?
     @State private var showingImagePicker = false
     @State private var isDragOver = false
     @State private var promptSent = false
@@ -357,27 +293,11 @@ struct TerminalSessionView: View {
             guard let terminal = terminalView else { return }
 
             // Send prompt text
-            terminal.send(txt: trimmedPrompt)
+            terminal.sendText(trimmedPrompt)
 
-            // Simulate Enter key press after a brief delay
+            // Send Enter key after a brief delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                if let event = NSEvent.keyEvent(
-                    with: .keyDown,
-                    location: .zero,
-                    modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: terminal.window?.windowNumber ?? 0,
-                    context: nil,
-                    characters: "\r",
-                    charactersIgnoringModifiers: "\r",
-                    isARepeat: false,
-                    keyCode: 36  // Return key
-                ) {
-                    terminal.keyDown(with: event)
-                } else {
-                    // Fallback: send ASCII Enter
-                    terminal.send([13])
-                }
+                terminal.sendBytes([13]) // Carriage return
             }
         }
     }
@@ -460,7 +380,7 @@ struct TerminalSessionView: View {
 
         // Try using terminal view directly
         if let terminal = terminalView {
-            terminal.send(txt: textToInsert)
+            terminal.sendText(textToInsert)
             // Restore focus to terminal
             DispatchQueue.main.async {
                 terminal.window?.makeFirstResponder(terminal)

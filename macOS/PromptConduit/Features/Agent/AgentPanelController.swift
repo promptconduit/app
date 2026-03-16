@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import SwiftTerm
 import ObjectiveC
 
 /// Manages all agent panel windows - each agent gets its own window
@@ -403,25 +402,18 @@ class AgentPanelController {
             // Find the terminal view and make it first responder
             if let terminalView = self.findTerminalView(in: hostingView) {
                 panel.makeFirstResponder(terminalView)
-                // Store terminal view reference in panel for paste handling
-                if let localTerminalView = terminalView as? LocalProcessTerminalView {
-                    panel.terminalView = localTerminalView
-                    // Also store in session manager for potential termination
-                    TerminalSessionManager.shared.updateTerminalView(terminalId, terminalView: localTerminalView)
-                }
+                panel.terminalView = terminalView
+                TerminalSessionManager.shared.updateTerminalView(terminalId, terminalView: terminalView)
             }
         }
     }
 
-    /// Recursively finds the LocalProcessTerminalView in the view hierarchy
-    private func findTerminalView(in view: NSView) -> NSView? {
-        // Check if this view is a terminal view (SwiftTerm's LocalProcessTerminalView)
-        let viewType = String(describing: type(of: view))
-        if viewType.contains("LocalProcessTerminalView") || viewType.contains("TerminalView") {
-            return view
+    /// Recursively finds the GhosttyTerminalView in the view hierarchy
+    private func findTerminalView(in view: NSView) -> GhosttyTerminalView? {
+        if let terminal = view as? GhosttyTerminalView {
+            return terminal
         }
 
-        // Recursively search subviews
         for subview in view.subviews {
             if let found = findTerminalView(in: subview) {
                 return found

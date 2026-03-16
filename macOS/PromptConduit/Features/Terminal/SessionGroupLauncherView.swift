@@ -23,6 +23,7 @@ struct SessionGroupLauncherView: View {
     let repositories: [String]
     let initialPrompt: String?
     let onClose: () -> Void
+    let onPromptSent: (() -> Void)?
 
     @StateObject private var tracker = TerminalSessionTracker.shared
     @State private var launchedRepos: Set<String> = []
@@ -30,6 +31,15 @@ struct SessionGroupLauncherView: View {
     @State private var isLaunchingAll = false
     @State private var broadcastText = ""
     @State private var showBroadcastInput = false
+    @State private var promptHasBeenSent = false  // Track if we've sent the initial prompt
+
+    init(groupId: UUID, repositories: [String], initialPrompt: String?, onClose: @escaping () -> Void, onPromptSent: (() -> Void)? = nil) {
+        self.groupId = groupId
+        self.repositories = repositories
+        self.initialPrompt = initialPrompt
+        self.onClose = onClose
+        self.onPromptSent = onPromptSent
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -233,11 +243,14 @@ struct SessionGroupLauncherView: View {
         default: columns = 4
         }
 
+        // Determine prompt to send - only send if not already sent
+        let promptToUse = promptHasBeenSent ? nil : initialPrompt
+
         // Launch in a grid layout with window positioning and session tracking
         // Prompt is passed via -p flag directly to Claude
         let newSessionIds = TerminalLauncher.launchClaudeGrid(
             repositories: repositories,
-            prompt: initialPrompt,
+            prompt: promptToUse,
             columns: columns,
             trackSessions: true
         )
@@ -248,8 +261,18 @@ struct SessionGroupLauncherView: View {
             launchedRepos.insert(repo)
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(repositories.count) * 0.3 + 0.5) {
+        // Mark prompt as sent after launching (only once)
+        if !promptHasBeenSent && promptToUse != nil {
+            promptHasBeenSent = true
+            onPromptSent?()
+        }
+
+        // After all terminals are launched, start typing the prompts
+        let totalLaunchTime = Double(repositories.count) * 0.3 + 0.5
+        DispatchQueue.main.asyncAfter(deadline: .now() + totalLaunchTime) {
             isLaunchingAll = false
+            // Trigger prompt typing for all terminals
+            TerminalLauncher.startTypingPendingPrompts()
         }
     }
 
@@ -258,12 +281,21 @@ struct SessionGroupLauncherView: View {
         sessionIds[repoPath] = sessionId
         launchedRepos.insert(repoPath)
 
+        // Determine prompt to send - only send if not already sent
+        let promptToUse = promptHasBeenSent ? nil : initialPrompt
+
         // Prompt is passed via -p flag directly to Claude
         TerminalLauncher.launchClaudeInTerminal(
             workingDirectory: repoPath,
-            prompt: initialPrompt,
+            prompt: promptToUse,
             sessionId: sessionId
         )
+
+        // Mark prompt as sent after launching (only once)
+        if !promptHasBeenSent && promptToUse != nil {
+            promptHasBeenSent = true
+            onPromptSent?()
+        }
     }
 }
 
@@ -557,40 +589,18 @@ enum TerminalLauncher {
         // Find the claude executable
         let claudePath = findClaudeExecutable()
 
-        // Create a unique output file to capture Claude's session ID
-        let outputFile = sessionId.map { "/tmp/claude-session-\($0.uuidString).json" }
-
         // Build the command to run in Terminal
+        // Always launch in interactive mode - prompt will be typed after startup
         var command = "cd \"\(workingDirectory)\" && \"\(claudePath)\""
 
-        if let prompt = prompt, !prompt.isEmpty {
-            // Escape the prompt for shell (handle newlines, quotes, etc.)
-            let escapedPrompt = escapeForShell(prompt)
+        // Use --allowedTools for safety
+        let toolsArg = config.allowedTools.joined(separator: ",")
+        command += " --allowedTools \"\(toolsArg)\""
 
-            // Use -p flag for programmatic mode
-            command += " -p \(escapedPrompt)"
-
-            // Use --allowedTools instead of --dangerously-skip-permissions (more secure)
-            let toolsArg = config.allowedTools.joined(separator: ",")
-            command += " --allowedTools \"\(toolsArg)\""
-
-            // Add custom system prompt if provided
-            if let systemPrompt = config.systemPromptAppend {
-                let escapedSystemPrompt = escapeForShell(systemPrompt)
-                command += " --append-system-prompt \(escapedSystemPrompt)"
-            }
-
-            // Output format for structured response
-            command += " --output-format \(config.outputFormat.rawValue)"
-
-            // Capture output to file so we can extract session_id
-            if let outFile = outputFile {
-                command += " | tee \"\(outFile)\""
-            }
-        } else {
-            // Interactive mode without prompt - still use allowedTools for safety
-            let toolsArg = config.allowedTools.joined(separator: ",")
-            command += " --allowedTools \"\(toolsArg)\""
+        // Add custom system prompt if provided
+        if let systemPrompt = config.systemPromptAppend {
+            let escapedSystemPrompt = escapeForShell(systemPrompt)
+            command += " --append-system-prompt \(escapedSystemPrompt)"
         }
 
         // Build AppleScript that returns window ID for tracking
@@ -634,9 +644,9 @@ enum TerminalLauncher {
                         windowId: windowId
                     )
 
-                    // Schedule parsing of Claude's session ID from output file
-                    if let outFile = outputFile {
-                        parseClaudeSessionId(from: outFile, for: sid)
+                    // If we have a prompt, schedule typing it after Claude starts
+                    if let prompt = prompt, !prompt.isEmpty {
+                        schedulePromptTyping(prompt: prompt, windowId: windowId, sessionId: sid)
                     }
 
                     return sid
@@ -647,55 +657,93 @@ enum TerminalLauncher {
         return sessionId
     }
 
-    /// Parse Claude's session ID from the JSON output file
-    private static func parseClaudeSessionId(from filePath: String, for sessionId: UUID) {
-        // Wait for Claude to finish and write output (poll for file)
-        DispatchQueue.global(qos: .background).async {
-            var attempts = 0
-            let maxAttempts = 120  // Wait up to 2 minutes for long-running tasks
+    /// Schedule typing a prompt into each terminal sequentially
+    /// We type into each terminal one at a time to ensure proper focus
+    private static func schedulePromptTyping(prompt: String, windowId: Int, sessionId: UUID) {
+        // Store the prompt typing task - will be executed after all terminals are launched
+        pendingPrompts.append((prompt: prompt, windowId: windowId))
+    }
 
-            defer {
-                // Always clean up temp file, even on failure
-                try? FileManager.default.removeItem(atPath: filePath)
-            }
+    /// Pending prompts to type after launch delay
+    private static var pendingPrompts: [(prompt: String, windowId: Int)] = []
+    private static var promptTypingScheduled = false
 
-            while attempts < maxAttempts {
-                attempts += 1
-                Thread.sleep(forTimeInterval: 1.0)
+    /// Start typing all pending prompts after a delay
+    static func startTypingPendingPrompts() {
+        guard !pendingPrompts.isEmpty && !promptTypingScheduled else { return }
+        promptTypingScheduled = true
 
-                // Check if file exists and has content
-                guard let data = FileManager.default.contents(atPath: filePath),
-                      let content = String(data: data, encoding: .utf8),
-                      !content.isEmpty else {
-                    continue
-                }
-
-                // Try to parse JSON and extract session_id
-                if let jsonData = content.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
-
-                    // Check for errors in the response
-                    if let isError = json["is_error"] as? Bool, isError {
-                        let errorMsg = json["result"] as? String ?? "Unknown error"
-                        print("[TerminalLauncher] Claude returned error: \(errorMsg)")
-                    }
-
-                    // Extract session_id
-                    if let claudeSessionId = json["session_id"] as? String {
-                        DispatchQueue.main.async {
-                            TerminalSessionTracker.shared.registerClaudeSessionId(
-                                id: sessionId,
-                                claudeSessionId: claudeSessionId
-                            )
-                            print("[TerminalLauncher] Captured Claude session ID: \(claudeSessionId)")
-                        }
-                        return
-                    }
-                }
-            }
-
-            print("[TerminalLauncher] Failed to capture Claude session ID after \(maxAttempts) seconds")
+        // Wait for Claude to fully start up in all terminals (6 seconds should be enough)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+            typeAllPendingPrompts()
         }
+    }
+
+    /// Type all pending prompts sequentially
+    private static func typeAllPendingPrompts() {
+        let prompts = pendingPrompts
+        pendingPrompts = []
+        promptTypingScheduled = false
+
+        print("[TerminalLauncher] Typing prompts into \(prompts.count) terminals...")
+
+        // Type into each terminal with a small delay between them
+        for (index, item) in prompts.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 1.5) {
+                typePromptIntoTerminal(prompt: item.prompt, windowId: item.windowId)
+            }
+        }
+    }
+
+    /// Type a prompt into a Terminal window using clipboard paste
+    /// This is more reliable than keystroke as it doesn't require full accessibility permissions
+    private static func typePromptIntoTerminal(prompt: String, windowId: Int) {
+        print("[TerminalLauncher] Pasting into terminal \(windowId): '\(prompt.prefix(30))...'")
+
+        let pasteboard = NSPasteboard.general
+
+        // Set our prompt to clipboard
+        pasteboard.clearContents()
+        pasteboard.setString(prompt, forType: .string)
+
+        // AppleScript to focus window and paste
+        let script = """
+        tell application "Terminal"
+            activate
+            -- Find and focus the window with our ID
+            repeat with w in windows
+                if id of w is \(windowId) then
+                    set index of w to 1
+                    exit repeat
+                end if
+            end repeat
+        end tell
+
+        delay 0.3
+
+        tell application "System Events"
+            tell process "Terminal"
+                -- Paste from clipboard (Cmd+V)
+                keystroke "v" using command down
+                delay 0.2
+                -- Press Enter to submit
+                keystroke return
+            end tell
+        end tell
+        """
+
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+            if let error = error {
+                print("[TerminalLauncher] Error pasting prompt into \(windowId): \(error)")
+            } else {
+                print("[TerminalLauncher] Successfully pasted prompt into terminal \(windowId)")
+            }
+        }
+
+        // Note: We don't restore clipboard as it can interfere with user typing
+        // The user's clipboard now contains their prompt, which is fine
     }
 
     /// Send a follow-up prompt to a Claude session using --resume
@@ -920,7 +968,8 @@ enum TerminalLauncher {
             "/Users/test/Documents/project-gamma"
         ],
         initialPrompt: "Please review the code and suggest improvements",
-        onClose: {}
+        onClose: {},
+        onPromptSent: {}
     )
     .frame(width: 800, height: 600)
 }

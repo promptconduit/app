@@ -7,11 +7,6 @@ options:
   generateEmptyDirectories: true
   groupSortPosition: top
 
-packages:
-  SwiftTerm:
-    url: https://github.com/migueldeicaza/SwiftTerm
-    exactVersion: "1.5.1"
-
 settings:
   base:
     PRODUCT_NAME: PromptConduit
@@ -33,7 +28,13 @@ targets:
     resources:
       - path: PromptConduit/Resources
     dependencies:
-      - package: SwiftTerm
+      - framework: Frameworks/GhosttyKit.xcframework
+        embed: true
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework
+      - sdk: IOSurface.framework
+      - sdk: UniformTypeIdentifiers.framework
+      - sdk: Carbon.framework
     settings:
       base:
         INFOPLIST_FILE: PromptConduit/Resources/Info.plist
@@ -41,6 +42,9 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: YES
         ENABLE_PREVIEWS: YES
+        FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/Frameworks"
+        SWIFT_OBJC_BRIDGING_HEADER: "PromptConduit/PromptConduit-Bridging-Header.h"
+        OTHER_LDFLAGS: "-lc++"
     entitlements:
       path: PromptConduit/Resources/PromptConduit.entitlements
       properties:
