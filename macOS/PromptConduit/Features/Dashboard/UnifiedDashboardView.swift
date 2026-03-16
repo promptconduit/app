@@ -1571,25 +1571,23 @@ struct UnifiedDashboardView: View {
             // Launcher view or completion state
             if group.isActive {
                 // Show launcher (opens Claude in native Terminal.app)
-                let promptToSend = group.promptSent ? nil : group.prompt
+                // Always pass the prompt - the launcher will handle marking it as sent after launch
                 SessionGroupLauncherView(
                     groupId: group.id,
                     repositories: group.repoPaths,
-                    initialPrompt: promptToSend,
+                    initialPrompt: group.prompt.isEmpty ? nil : group.prompt,
                     onClose: {
                         archiveGroup(group.id)
                         selectedGroupId = nil
-                    }
-                )
-                .id(group.id)
-                .onAppear {
-                    // Mark prompt as sent when the launcher appears
-                    if !group.promptSent {
+                    },
+                    onPromptSent: {
+                        // Mark prompt as sent only after terminals are launched
                         settings.updateSessionGroup(id: group.id) { g in
                             g.markPromptSent()
                         }
                     }
-                }
+                )
+                .id(group.id)
             } else {
                 // Show completion state
                 completedGroupView(group)
