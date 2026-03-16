@@ -700,9 +700,7 @@ enum TerminalLauncher {
     private static func typePromptIntoTerminal(prompt: String, windowId: Int) {
         print("[TerminalLauncher] Pasting into terminal \(windowId): '\(prompt.prefix(30))...'")
 
-        // Save current clipboard contents
         let pasteboard = NSPasteboard.general
-        let oldContents = pasteboard.string(forType: .string)
 
         // Set our prompt to clipboard
         pasteboard.clearContents()

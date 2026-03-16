@@ -76,6 +76,11 @@ class GhosttyTerminalView: NSView {
         shellCommand: String,
         environment: [String]
     ) {
+        guard surface == nil else {
+            print("[GhosttyTerminalView] Process already started")
+            return
+        }
+
         guard let app = GhosttyApp.shared.app else {
             print("[GhosttyTerminalView] GhosttyApp not initialized")
             return
@@ -144,7 +149,7 @@ class GhosttyTerminalView: NSView {
             }
         }, ud)
 
-        print("[GhosttyTerminalView] Process started: \(command)")
+        print("[GhosttyTerminalView] Process started")
     }
 
     // MARK: - Text Input
