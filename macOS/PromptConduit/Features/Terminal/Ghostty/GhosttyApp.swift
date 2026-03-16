@@ -93,7 +93,8 @@ final class GhosttyApp {
     private static func handleReadClipboard(userdata: UnsafeMutableRawPointer?, kind: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) {
         DispatchQueue.main.async {
             let pasteboard = NSPasteboard.general
-            guard let str = pasteboard.string(forType: .string) else { return }
+            // Always respond — returning nothing can cause ghostty to hang
+            let str = pasteboard.string(forType: .string) ?? ""
 
             str.withCString { cstr in
                 ghostty_app_set_clipboard(state, cstr, kind)

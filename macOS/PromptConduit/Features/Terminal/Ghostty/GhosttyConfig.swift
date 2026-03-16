@@ -37,7 +37,7 @@ enum GhosttyConfig {
         set(config, key: "clipboard-read", value: "allow")
         set(config, key: "clipboard-write", value: "allow")
 
-        // Load finalized config
+        // Finalize the config
         ghostty_config_finalize(config)
 
         return config

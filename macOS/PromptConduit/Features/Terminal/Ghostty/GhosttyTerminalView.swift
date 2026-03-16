@@ -2,7 +2,6 @@ import AppKit
 import QuartzCore
 
 /// An NSView that wraps a single ghostty terminal surface with Metal-accelerated rendering.
-/// Replaces SwiftTerm's LocalProcessTerminalView and MonitoredTerminalView.
 class GhosttyTerminalView: NSView {
 
     /// The ghostty surface handle (created when the process is started).
@@ -70,7 +69,7 @@ class GhosttyTerminalView: NSView {
 
     /// Start a process in the terminal.
     /// - Parameters:
-    ///   - shellCommand: Pre-built shell command string to execute via /bin/zsh -l -c.
+    ///   - shellCommand: Pre-built shell command string passed to ghostty as the surface command.
     ///   - environment: Environment variables as "KEY=VALUE" strings.
     func startProcess(
         shellCommand: String,
@@ -126,7 +125,7 @@ class GhosttyTerminalView: NSView {
         // Get the PTY file descriptor for writing
         ptyFD = ghostty_surface_pty_fd(surface)
 
-        // Set up output monitoring callback (requires our fork patch)
+        // Set up output monitoring callback (promptconduit/ghostty fork — not in upstream)
         let ud = retained.toOpaque()
         ghostty_surface_set_output_callback(surface, { data, len, userdata in
             guard let data = data, let userdata = userdata else { return }
@@ -140,11 +139,12 @@ class GhosttyTerminalView: NSView {
             }
         }, ud)
 
-        // Set up termination callback
+        // Set up termination callback (also fork-specific, like output callback)
         ghostty_surface_set_termination_callback(surface, { userdata in
             guard let userdata = userdata else { return }
             let view = Unmanaged<GhosttyTerminalView>.fromOpaque(userdata).takeUnretainedValue()
             DispatchQueue.main.async {
+                view.ptyFD = -1  // Prevent writes to stale FD
                 view.onProcessTerminated?()
             }
         }, ud)
@@ -184,8 +184,8 @@ class GhosttyTerminalView: NSView {
     func getSelectedText() -> String? {
         guard let surface = surface else { return nil }
         guard let cstr = ghostty_surface_selection(surface) else { return nil }
+        defer { ghostty_free(cstr) }
         let text = String(cString: cstr)
-        ghostty_free(cstr)
         return text.isEmpty ? nil : text
     }
 
