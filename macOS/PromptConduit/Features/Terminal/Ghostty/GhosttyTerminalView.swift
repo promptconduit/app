@@ -7,13 +7,8 @@ class GhosttyTerminalView: NSView {
     /// The ghostty surface handle (created when the process is started).
     private(set) var surface: ghostty_surface_t?
 
-    /// File descriptor for the surface's PTY — used for sendText/sendBytes.
-    private var ptyFD: Int32 = -1
-
-    /// Retained self pointer passed to ghostty callbacks. Released in deinit.
-    private var retainedSelf: Unmanaged<GhosttyTerminalView>?
-
     /// Callback invoked when terminal output is received (for Claude readiness detection).
+    /// Note: Requires the promptconduit/ghostty fork patch for output monitoring.
     var onDataReceived: ((String) -> Void)?
 
     /// Callback when Claude is ready for input.
@@ -59,21 +54,21 @@ class GhosttyTerminalView: NSView {
 
     deinit {
         if let surface = surface {
-            ghostty_surface_deinit(surface)
+            ghostty_surface_free(surface)
         }
-        // Release the retained self reference used by ghostty callbacks
-        retainedSelf?.release()
     }
 
     // MARK: - Process Launch
 
     /// Start a process in the terminal.
     /// - Parameters:
-    ///   - shellCommand: Pre-built shell command string passed to ghostty as the surface command.
-    ///   - environment: Environment variables as "KEY=VALUE" strings.
+    ///   - command: Shell command string passed to ghostty as the surface command.
+    ///   - workingDirectory: Working directory for the process.
+    ///   - environmentVars: Environment variables as ["KEY": "VALUE"] dictionary.
     func startProcess(
-        shellCommand: String,
-        environment: [String]
+        command: String,
+        workingDirectory: String,
+        environmentVars: [String: String] = [:]
     ) {
         guard surface == nil else {
             print("[GhosttyTerminalView] Process already started")
@@ -85,49 +80,65 @@ class GhosttyTerminalView: NSView {
             return
         }
 
-        // Build the surface configuration
-        // Use passRetained so ghostty callbacks can safely reference this view.
-        // The matching release happens in deinit.
-        let retained = Unmanaged.passRetained(self)
-        retainedSelf = retained
+        // Build a surface config following the pattern from
+        // ghostty/macos/Sources/Ghostty/Surface View/SurfaceView.swift
+        var config = ghostty_surface_config_new()
+        config.userdata = Unmanaged.passUnretained(self).toOpaque()
 
-        var surfaceConfig = ghostty_surface_config_s()
-        surfaceConfig.userdata = retained.toOpaque()
+        // Set macOS platform with this view as the NSView
+        config.platform_tag = GHOSTTY_PLATFORM_MACOS
+        config.platform = ghostty_platform_u(
+            macos: ghostty_platform_macos_s(
+                nsview: Unmanaged.passUnretained(self).toOpaque()
+            )
+        )
+        config.scale_factor = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        config.font_size = 13
 
-        // Set up the Metal layer for GPU rendering
-        let metalLayer = CAMetalLayer()
-        metalLayer.contentsScale = window?.backingScaleFactor ?? 2.0
-        metalLayer.frame = bounds
-        self.layer = metalLayer
+        // Use withCString closures to keep string pointers alive during surface creation.
+        // This matches the nested-closure pattern from Ghostty's SurfaceConfiguration.withCValue.
+        let surfaceResult: ghostty_surface_t? = workingDirectory.withCString { cWorkDir in
+            config.working_directory = cWorkDir
 
-        // Set command and environment in surface config
-        shellCommand.withCString { cmd in
-            surfaceConfig.command = cmd
+            return command.withCString { cCmd in
+                config.command = cCmd
 
-            // Pass environment variables to the surface
-            let cEnvStrings = environment.map { strdup($0) }
-            cEnvStrings.withUnsafeBufferPointer { envBuf in
-                surfaceConfig.env = envBuf.baseAddress
-                surfaceConfig.env_len = UInt32(envBuf.count)
+                // Convert environment dictionary to ghostty_env_var_s array
+                let keys = Array(environmentVars.keys)
+                let values = Array(environmentVars.values)
 
-                // Create the surface
-                surface = ghostty_surface_new(app, &surfaceConfig)
+                return keys.withCStrings { keyCStrings in
+                    return values.withCStrings { valueCStrings in
+                        var envVars = [ghostty_env_var_s]()
+                        envVars.reserveCapacity(environmentVars.count)
+                        for i in 0..<environmentVars.count {
+                            envVars.append(ghostty_env_var_s(
+                                key: keyCStrings[i],
+                                value: valueCStrings[i]
+                            ))
+                        }
+
+                        return envVars.withUnsafeMutableBufferPointer { buffer in
+                            config.env_vars = buffer.baseAddress
+                            config.env_var_count = environmentVars.count
+                            return ghostty_surface_new(app, &config)
+                        }
+                    }
+                }
             }
-            // Free the strdup'd strings
-            for ptr in cEnvStrings { free(ptr) }
         }
 
-        guard let surface = surface else {
+        guard let newSurface = surfaceResult else {
             print("[GhosttyTerminalView] Failed to create surface")
             return
         }
 
-        // Get the PTY file descriptor for writing
-        ptyFD = ghostty_surface_pty_fd(surface)
+        surface = newSurface
 
-        // Set up output monitoring callback (promptconduit/ghostty fork — not in upstream)
-        let ud = retained.toOpaque()
-        ghostty_surface_set_output_callback(surface, { data, len, userdata in
+        // Set up output monitoring callback (promptconduit/ghostty fork — not in upstream).
+        // This hooks into the PTY read loop to feed output to Claude readiness detection.
+        let ud = Unmanaged.passUnretained(self).toOpaque()
+        ghostty_surface_set_output_callback(newSurface, { data, len, userdata in
             guard let data = data, let userdata = userdata else { return }
             let view = Unmanaged<GhosttyTerminalView>.fromOpaque(userdata).takeUnretainedValue()
 
@@ -139,33 +150,29 @@ class GhosttyTerminalView: NSView {
             }
         }, ud)
 
-        // Set up termination callback (also fork-specific, like output callback)
-        ghostty_surface_set_termination_callback(surface, { userdata in
-            guard let userdata = userdata else { return }
-            let view = Unmanaged<GhosttyTerminalView>.fromOpaque(userdata).takeUnretainedValue()
-            DispatchQueue.main.async {
-                view.ptyFD = -1  // Prevent writes to stale FD
-                view.onProcessTerminated?()
-            }
-        }, ud)
-
         print("[GhosttyTerminalView] Process started")
     }
 
     // MARK: - Text Input
 
-    /// Send text to the terminal's PTY.
+    /// Send text to the terminal as if it was typed.
+    /// Uses ghostty_surface_text which bypasses key bindings (appropriate for programmatic input).
     func sendText(_ text: String) {
-        guard let data = text.data(using: .utf8) else { return }
-        sendBytes(Array(data))
+        guard let surface = surface else { return }
+        let len = text.utf8CString.count
+        if len == 0 { return }
+
+        text.withCString { ptr in
+            ghostty_surface_text(surface, ptr, UInt(len - 1))
+        }
     }
 
-    /// Send raw bytes to the terminal's PTY.
+    /// Send raw bytes to the terminal (e.g., control characters like CR).
     func sendBytes(_ bytes: [UInt8]) {
-        guard ptyFD >= 0 else { return }
-        bytes.withUnsafeBufferPointer { buffer in
-            guard let base = buffer.baseAddress else { return }
-            _ = write(ptyFD, base, buffer.count)
+        guard let surface = surface else { return }
+        // Convert bytes to a string and use ghostty_surface_text
+        if let str = String(bytes: bytes, encoding: .utf8) {
+            sendText(str)
         }
     }
 
@@ -175,7 +182,7 @@ class GhosttyTerminalView: NSView {
     /// Used by broadcast mode to send keystrokes to all terminals.
     func forwardKeyEvent(_ event: NSEvent) {
         guard let surface = surface else { return }
-        ghostty_surface_key(surface, event)
+        Ghostty.sendKeyEvent(to: surface, event: event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS)
     }
 
     // MARK: - Selection
@@ -183,10 +190,15 @@ class GhosttyTerminalView: NSView {
     /// Get the currently selected text, if any.
     func getSelectedText() -> String? {
         guard let surface = surface else { return nil }
-        guard let cstr = ghostty_surface_selection(surface) else { return nil }
-        defer { ghostty_free(cstr) }
-        let text = String(cString: cstr)
-        return text.isEmpty ? nil : text
+        guard ghostty_surface_has_selection(surface) else { return nil }
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+
+        guard let ptr = text.text, text.text_len > 0 else { return nil }
+        let str = String(cString: ptr)
+        return str.isEmpty ? nil : str
     }
 
     // MARK: - Layout
@@ -196,21 +208,16 @@ class GhosttyTerminalView: NSView {
 
         guard let surface = surface else { return }
 
-        // Update Metal layer frame
-        if let metalLayer = layer as? CAMetalLayer {
-            metalLayer.frame = bounds
-            metalLayer.drawableSize = CGSize(
-                width: bounds.width * (window?.backingScaleFactor ?? 2.0),
-                height: bounds.height * (window?.backingScaleFactor ?? 2.0)
-            )
-        }
-
-        // Notify ghostty of the size change
+        let scale = UInt32(window?.backingScaleFactor ?? 2.0)
         ghostty_surface_set_size(
             surface,
             UInt32(bounds.width),
-            UInt32(bounds.height),
-            UInt32(window?.backingScaleFactor ?? 2)
+            UInt32(bounds.height)
+        )
+        ghostty_surface_set_content_scale(
+            surface,
+            Double(scale),
+            Double(scale)
         )
     }
 
@@ -219,75 +226,93 @@ class GhosttyTerminalView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
-        guard let surface = surface else { return super.becomeFirstResponder() }
-        ghostty_surface_set_focus(surface, true)
+        if let surface = surface {
+            ghostty_surface_set_focus(surface, true)
+        }
         return super.becomeFirstResponder()
     }
 
     override func resignFirstResponder() -> Bool {
-        guard let surface = surface else { return super.resignFirstResponder() }
-        ghostty_surface_set_focus(surface, false)
+        if let surface = surface {
+            ghostty_surface_set_focus(surface, false)
+        }
         return super.resignFirstResponder()
     }
 
-    // MARK: - Mouse & Keyboard Events
+    // MARK: - Keyboard Events
 
     override func keyDown(with event: NSEvent) {
         guard let surface = surface else { return }
-        ghostty_surface_key(surface, event)
+        Ghostty.sendKeyEvent(to: surface, event: event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS)
     }
 
     override func keyUp(with event: NSEvent) {
         guard let surface = surface else { return }
-        ghostty_surface_key(surface, event)
+        Ghostty.sendKeyEvent(to: surface, event: event, action: GHOSTTY_ACTION_RELEASE)
     }
 
     override func flagsChanged(with event: NSEvent) {
         guard let surface = surface else { return }
-        ghostty_surface_key(surface, event)
+        Ghostty.sendKeyEvent(to: surface, event: event, action: GHOSTTY_ACTION_PRESS)
     }
+
+    // MARK: - Mouse Events
 
     override func mouseDown(with event: NSEvent) {
         guard let surface = surface else { return }
-        ghostty_surface_mouse_button(surface, event)
+        let point = convert(event.locationInWindow, from: nil)
+        let mods = Ghostty.ghosttyMods(event.modifierFlags)
+        ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
     }
 
     override func mouseUp(with event: NSEvent) {
         guard let surface = surface else { return }
-        ghostty_surface_mouse_button(surface, event)
+        let mods = Ghostty.ghosttyMods(event.modifierFlags)
+        ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let surface = surface else { return }
-        ghostty_surface_mouse_pos(surface, event)
+        let point = convert(event.locationInWindow, from: nil)
+        let mods = Ghostty.ghosttyMods(event.modifierFlags)
+        ghostty_surface_mouse_pos(surface, point.x, point.y, mods)
     }
 
     override func mouseMoved(with event: NSEvent) {
         guard let surface = surface else { return }
-        ghostty_surface_mouse_pos(surface, event)
+        let point = convert(event.locationInWindow, from: nil)
+        let mods = Ghostty.ghosttyMods(event.modifierFlags)
+        ghostty_surface_mouse_pos(surface, point.x, point.y, mods)
     }
 
     override func scrollWheel(with event: NSEvent) {
         guard let surface = surface else { return }
-        ghostty_surface_mouse_scroll(surface, event)
+        var scrollMods = ghostty_input_scroll_mods_t()
+        scrollMods.precise = event.hasPreciseScrollingDeltas
+        scrollMods.momentum = event.momentumPhase != []
+        ghostty_surface_mouse_scroll(surface, event.scrollingDeltaX, event.scrollingDeltaY, scrollMods)
+    }
+
+    // MARK: - Process Termination (called from GhosttyApp action callback)
+
+    /// Called when the child process exits. Invoked from the action callback.
+    func handleProcessTerminated() {
+        onProcessTerminated?()
     }
 
     // MARK: - Output Monitoring
 
     /// Handles output received from the PTY (via fork patch callback).
     private func handleOutputReceived(_ text: String) {
-        // Update buffer
         outputBuffer += text
         if outputBuffer.count > maxBufferSize {
             outputBuffer = String(outputBuffer.suffix(maxBufferSize))
         }
 
-        // Check for Claude ready state
         if !isClaudeReady {
             checkClaudeReady()
         }
 
-        // Notify callback
         onDataReceived?(text)
     }
 
@@ -320,5 +345,50 @@ class GhosttyTerminalView: NSView {
     func resetReadyState() {
         isClaudeReady = false
         outputBuffer = ""
+    }
+}
+
+// MARK: - Input Helpers
+
+/// Namespace for Ghostty input helpers.
+/// Pattern follows cmux's GhosttyTerminalView key handling.
+enum Ghostty {
+    /// Translate NSEvent modifier flags to ghostty mods.
+    static func ghosttyMods(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        var mods: UInt32 = GHOSTTY_MODS_NONE.rawValue
+
+        if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
+        if flags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
+        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
+        if flags.contains(.capsLock) { mods |= GHOSTTY_MODS_CAPS.rawValue }
+
+        return ghostty_input_mods_e(mods)
+    }
+
+    /// Send a key event to a ghostty surface from an NSEvent.
+    /// The text pointer must remain valid during the ghostty_surface_key call,
+    /// so we use withCString to ensure lifetime safety (matching cmux's pattern).
+    @discardableResult
+    static func sendKeyEvent(to surface: ghostty_surface_t, event: NSEvent, action: ghostty_input_action_e) -> Bool {
+        var key = ghostty_input_key_s()
+        key.action = action
+        key.keycode = UInt32(event.keyCode)
+        key.mods = ghosttyMods(event.modifierFlags)
+        key.consumed_mods = GHOSTTY_MODS_NONE
+        key.composing = false
+        key.unshifted_codepoint = 0
+
+        let text = event.charactersIgnoringModifiers ?? event.characters ?? ""
+        if text.isEmpty {
+            key.text = nil
+            return ghostty_surface_key(surface, key)
+        } else {
+            // Text pointer must be valid during ghostty_surface_key — keep inside withCString
+            return text.withCString { ptr in
+                key.text = ptr
+                return ghostty_surface_key(surface, key)
+            }
+        }
     }
 }
