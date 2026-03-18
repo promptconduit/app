@@ -104,13 +104,15 @@ final class GhosttyApp {
     // MARK: - Clipboard
 
     private static func readClipboard(_ userdata: UnsafeMutableRawPointer?, kind: ghostty_clipboard_e, state: UnsafeMutableRawPointer?) -> Bool {
-        DispatchQueue.main.async {
-            let pasteboard = NSPasteboard.general
-            // Always respond — returning nothing can cause ghostty to hang
-            let str = pasteboard.string(forType: .string) ?? ""
-            str.withCString { cstr in
-                ghostty_app_set_clipboard(state, cstr, kind)
-            }
+        // userdata is the surface's userdata (our GhosttyTerminalView)
+        guard let userdata = userdata else { return false }
+        let view = Unmanaged<GhosttyTerminalView>.fromOpaque(userdata).takeUnretainedValue()
+        guard let surface = view.surface else { return false }
+
+        let pasteboard = NSPasteboard.general
+        let str = pasteboard.string(forType: .string) ?? ""
+        str.withCString { cstr in
+            ghostty_surface_complete_clipboard_request(surface, cstr, state, false)
         }
         return true
     }

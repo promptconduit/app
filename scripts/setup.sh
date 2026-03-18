@@ -50,10 +50,10 @@ build_ghosttykit() {
         info "Building GhosttyKit.xcframework (SHA: ${sha:0:12})..."
         cd "$GHOSTTY_DIR"
 
-        zig build -Demit-xcframework=true -Dxcframework-target=universal
+        zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native -Doptimize=ReleaseFast
 
         mkdir -p "$CACHE_DIR/$sha"
-        cp -R zig-out/GhosttyKit.xcframework "$CACHE_DIR/$sha/"
+        cp -R macos/GhosttyKit.xcframework "$CACHE_DIR/$sha/"
         info "Cached build at $CACHE_DIR/$sha/"
     fi
 

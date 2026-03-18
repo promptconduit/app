@@ -92,7 +92,7 @@ class GhosttyTerminalView: NSView {
                 nsview: Unmanaged.passUnretained(self).toOpaque()
             )
         )
-        config.scale_factor = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        config.scale_factor = Double(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0)
         config.font_size = 13
 
         // Use withCString closures to keep string pointers alive during surface creation.
@@ -135,20 +135,12 @@ class GhosttyTerminalView: NSView {
 
         surface = newSurface
 
-        // Set up output monitoring callback (promptconduit/ghostty fork — not in upstream).
-        // This hooks into the PTY read loop to feed output to Claude readiness detection.
-        let ud = Unmanaged.passUnretained(self).toOpaque()
-        ghostty_surface_set_output_callback(newSurface, { data, len, userdata in
-            guard let data = data, let userdata = userdata else { return }
-            let view = Unmanaged<GhosttyTerminalView>.fromOpaque(userdata).takeUnretainedValue()
-
-            let buffer = UnsafeBufferPointer(start: data, count: len)
-            if let text = String(bytes: buffer, encoding: .utf8) {
-                DispatchQueue.main.async {
-                    view.handleOutputReceived(text)
-                }
-            }
-        }, ud)
+        // Output monitoring callback — requires promptconduit/ghostty fork patch.
+        // When the fork patch is applied, uncomment ghostty_surface_set_output_callback below.
+        // Until then, Claude readiness detection falls back to JSONL-based monitoring.
+        // TODO: Enable once fork patch adds ghostty_surface_set_output_callback to the C API
+        // let ud = Unmanaged.passUnretained(self).toOpaque()
+        // ghostty_surface_set_output_callback(newSurface, { data, len, userdata in ... }, ud)
 
         print("[GhosttyTerminalView] Process started")
     }
@@ -287,9 +279,9 @@ class GhosttyTerminalView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         guard let surface = surface else { return }
-        var scrollMods = ghostty_input_scroll_mods_t()
-        scrollMods.precise = event.hasPreciseScrollingDeltas
-        scrollMods.momentum = event.momentumPhase != []
+        var scrollMods: ghostty_input_scroll_mods_t = 0
+        if event.hasPreciseScrollingDeltas { scrollMods |= 1 } // GHOSTTY_SCROLL_MOD_PRECISE
+        if event.momentumPhase != [] { scrollMods |= 2 }       // GHOSTTY_SCROLL_MOD_MOMENTUM
         ghostty_surface_mouse_scroll(surface, event.scrollingDeltaX, event.scrollingDeltaY, scrollMods)
     }
 

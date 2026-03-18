@@ -19,6 +19,7 @@
 		22705E2B48B11DD74C874BAB /* ClaudeSessionDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DCFF8064AF1AE1E1ABF1ABC /* ClaudeSessionDiscoveryTests.swift */; };
 		22B846A8C1C72A58560F1ACC /* MultiTerminalGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4861CDC8ACA228D500459E2F /* MultiTerminalGridView.swift */; };
 		303D5CB5163D9DEAB1338DEA /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EACBD1049D1F118A4A59672F /* NotificationService.swift */; };
+		35CCEF48BCFCE15B87CE77B1 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A070D6E6680A9CA5D8E1861F /* Extensions.swift */; };
 		3871A6B448C1D5DCC7CD8B1D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8D6C2B0E701C4D4F15ECA1 /* SettingsView.swift */; };
 		3BC05FE3EE9C5965A5F3DFC0 /* HookNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C66B19CC6B7A578E29246A /* HookNotificationService.swift */; };
 		3FDA0527E6DC3B49235BAF19 /* AgentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70B2BCCD9556E2BF70365189 /* AgentManager.swift */; };
@@ -151,6 +152,7 @@
 		93379B0E9848F747EB6489FF /* SessionHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionHistory.swift; sourceTree = "<group>"; };
 		9353377F0E90986D3B597935 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		93CE2A268F0E7B8C344AFB55 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A070D6E6680A9CA5D8E1861F /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
 		A32CDDDC7E1DCE4B3DDE232B /* PatternSkillServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternSkillServiceTests.swift; sourceTree = "<group>"; };
 		AF8BDAA52F7C52621E8DA50B /* SlashCommandsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandsService.swift; sourceTree = "<group>"; };
 		B4EB378A70B4D332CE891582 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
@@ -210,6 +212,7 @@
 		44EC6A8BA4EEA42DF4090721 /* Ghostty */ = {
 			isa = PBXGroup;
 			children = (
+				A070D6E6680A9CA5D8E1861F /* Extensions.swift */,
 				49E7D8CAAA4299797E9C90B7 /* GhosttyApp.swift */,
 				3C65534BAA60F0D877AB2D07 /* GhosttyConfig.swift */,
 				B4EB378A70B4D332CE891582 /* GhosttyTerminalView.swift */,
@@ -484,6 +487,7 @@
 				7472D7376E33B38BD222614C /* ClaudeSessionDiscovery.swift in Sources */,
 				6876A4389CB36B7EB4A5FFC9 /* EmbeddedTerminalView.swift in Sources */,
 				A9460E7CB8619AA107690758 /* EmbeddingService.swift in Sources */,
+				35CCEF48BCFCE15B87CE77B1 /* Extensions.swift in Sources */,
 				9462330FFE981DFFE6D3C578 /* GhosttyApp.swift in Sources */,
 				026369DACBC3D03155C35ADC /* GhosttyConfig.swift in Sources */,
 				814424B1C9B608FADEBDBB13 /* GhosttyTerminalView.swift in Sources */,
