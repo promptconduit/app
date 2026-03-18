@@ -72,13 +72,13 @@ struct EmbeddedTerminalView: NSViewRepresentable {
         }
 
         // Build environment with user's PATH and proper terminal settings
-        var environment = ProcessInfo.processInfo.environment
-        if let existingPath = environment["PATH"] {
-            environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(existingPath)"
+        var envVars: [String: String] = [:]
+        if let existingPath = ProcessInfo.processInfo.environment["PATH"] {
+            envVars["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(existingPath)"
         }
-        environment["TERM"] = "xterm-256color"
-        environment["COLORTERM"] = "truecolor"
-        environment["LANG"] = "en_US.UTF-8"
+        envVars["TERM"] = "xterm-256color"
+        envVars["COLORTERM"] = "truecolor"
+        envVars["LANG"] = "en_US.UTF-8"
 
         // Build shell command — quote each argument to prevent injection
         let quotedArgs = arguments.map { "\"\($0)\"" }.joined(separator: " ")
@@ -86,8 +86,9 @@ struct EmbeddedTerminalView: NSViewRepresentable {
 
         // Start the process
         terminalView.startProcess(
-            shellCommand: shellCommand,
-            environment: Array(environment.map { "\($0.key)=\($0.value)" })
+            command: shellCommand,
+            workingDirectory: workingDirectory,
+            environmentVars: envVars
         )
 
         // Notify that terminal is ready
