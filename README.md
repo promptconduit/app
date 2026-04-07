@@ -2,6 +2,8 @@
 
 A native macOS menu bar app that tracks your Claude Code sessions and manages your skills library.
 
+![PromptConduit sessions dashboard](docs/screenshot-sessions.png)
+
 ## What It Does
 
 PromptConduit sits in your menu bar and watches your Claude Code sessions in real-time. It gives you visibility into your coding activity and a central place to manage reusable slash commands.
