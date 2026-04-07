@@ -1,39 +1,39 @@
 # PromptConduit for macOS
 
-A native macOS menu bar app for managing Claude Code sessions, discovering patterns in your AI workflows, and building reusable skills.
+A native macOS menu bar app that tracks your Claude Code sessions and manages your skills library.
 
 ## What It Does
 
-PromptConduit sits in your menu bar and watches your Claude Code sessions in real-time. It indexes your conversation transcripts, detects repeated workflows, and helps you turn them into reusable slash commands.
+PromptConduit sits in your menu bar and watches your Claude Code sessions in real-time. It gives you visibility into your coding activity and a central place to manage reusable slash commands.
 
 **Key capabilities:**
 
 - **Sessions Dashboard** — Browse all Claude Code sessions grouped by repository, with live status indicators (running, waiting, idle)
-- **Semantic Search** — Search across all your transcripts using natural language, powered by vector embeddings
-- **Pattern Detection** — Automatically clusters repeated prompts across sessions and scores them by frequency, diversity, and complexity
-- **Skills Management** — Browse, edit, and create Claude Code slash commands (`~/.claude/commands/`). Convert detected patterns into reusable skills with one click
-- **Embedded Terminals** — Launch and monitor multiple Claude Code sessions in a grid view with broadcast mode
+- **Skills Management** — Browse, edit, and create Claude Code slash commands (`~/.claude/commands/`). Global and project-scoped skills in one place.
 
 ## Requirements
 
 - macOS 14.0+ (Sonoma)
 - Xcode 15.0+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+- [Zig](https://ziglang.org/) (required to build the GhosttyKit terminal framework)
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed
 
 ## Getting Started
 
 ```bash
-# Install XcodeGen
-brew install xcodegen
+# Install prerequisites
+brew install xcodegen zig
 
-# Clone and generate project
+# Clone and set up
 git clone https://github.com/promptconduit/app.git
 cd app
-xcodegen generate
+./scripts/setup.sh        # builds GhosttyKit.xcframework (~5 min first time)
 
-# Open in Xcode and run (Cmd+R)
-open macOS/PromptConduit.xcodeproj
+# Generate Xcode project and open
+cd macOS
+xcodegen generate
+open PromptConduit.xcodeproj
 ```
 
 Or build from the command line:
@@ -54,36 +54,27 @@ PromptConduit monitors `~/.claude/projects/` for JSONL transcript files that Cla
 
 ### Hook Integration
 
-For real-time notifications, PromptConduit integrates with Claude Code's hook system. Hooks fire on session start, prompt submission, and tool execution, giving the app instant updates without polling.
+For real-time updates, PromptConduit integrates with Claude Code's hook system. Hooks fire on session start, prompt submission, and tool execution, giving the app instant status changes without polling.
 
-### Pattern Detection
+### Skills Management
 
-The pattern engine clusters similar prompts across your sessions using text similarity. It scores patterns by:
-- **Frequency** — How often you repeat the prompt
-- **Diversity** — Whether it appears across different repositories
-- **Recency** — When it was last used
-- **Complexity** — Length and sophistication of the prompt
+Skills are markdown files with YAML frontmatter loaded from two locations:
+- **Global:** `~/.claude/commands/` — available in all projects
+- **Project:** `[repo]/.claude/commands/` — project-specific, committable to git
 
-High-scoring patterns are candidates for conversion into reusable skills.
-
-### Semantic Search
-
-Transcripts are indexed with vector embeddings stored in a local SQLite database. This enables natural language search across all your Claude Code conversations — find that debugging session from last week by describing what you were working on.
+The app lets you browse, edit, and create skills without leaving your workflow.
 
 ## Architecture
 
 ```
 PromptConduit/
-├── Core/
-│   └── PTY/                    # Pseudo-terminal for Claude CLI control
 ├── Features/
-│   ├── Dashboard/              # 4-tab UI (Sessions, Semantic, Patterns, Skills)
+│   ├── Dashboard/              # Sessions + Skills UI
 │   ├── MenuBar/                # Menu bar controller with global hotkey
-│   ├── Terminal/               # Embedded terminal grid with broadcast mode
-│   ├── Agent/                  # Agent panel and transcript rendering
+│   ├── Agent/                  # Session transcript rendering
 │   └── Settings/               # App preferences
 ├── Models/                     # AgentSession, SessionGroup, SessionHistory
-├── Services/                   # 21 services (see below)
+├── Services/                   # Core services
 └── Resources/                  # Info.plist, entitlements
 ```
 
@@ -92,11 +83,7 @@ Key services:
 | Service | Purpose |
 |---------|---------|
 | `ClaudeSessionDiscovery` | Monitors JSONL session files, tracks live status |
-| `TranscriptIndexService` | Indexes transcripts with embeddings for search |
-| `PatternDetectionService` | Clusters repeated prompts across sessions |
-| `PatternSkillService` | Converts detected patterns into slash commands |
 | `SlashCommandsService` | Loads and manages skills from disk |
-| `TerminalSessionManager` | Manages embedded terminal sessions |
 | `HookNotificationService` | Receives real-time events from Claude Code hooks |
 
 ## Development
@@ -105,6 +92,8 @@ Swift changes require a full rebuild and app restart — there is no hot reload.
 
 ```bash
 # Build
+cd macOS
+xcodegen generate
 xcodebuild -scheme PromptConduit -configuration Debug build
 
 # Run tests
@@ -114,7 +103,6 @@ xcodebuild test -scheme PromptConduit -destination 'platform=macOS'
 ### Permissions
 
 The app is **not sandboxed** — it needs to:
-- Spawn Claude CLI processes via PTY
 - Monitor file system for session transcripts
 - Send Apple Events for automation
 
