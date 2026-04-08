@@ -119,4 +119,4 @@ Contributions are welcome. Please open an issue first to discuss what you'd like
 
 ## License
 
-[MIT](LICENSE) — Copyright (c) 2025 PromptConduit
+[MIT](LICENSE) — Copyright (c) 2026 PromptConduit
