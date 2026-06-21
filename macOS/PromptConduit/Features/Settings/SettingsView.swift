@@ -456,6 +456,24 @@ struct HooksSettingsTab: View {
                 }
                 .padding(.vertical, 8)
             }
+
+            Divider()
+
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Event Log")
+                        .font(.headline)
+
+                    Text("PromptConduit records the full payloads it sends to the platform — plus any send errors and dropped events — in ~/.promptconduit/. Use this to verify what's being captured.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Button("Reveal Event Log Folder") {
+                        PromptConduitDataFolder.reveal()
+                    }
+                }
+                .padding(.vertical, 8)
+            }
         }
         .padding()
         .onAppear {
