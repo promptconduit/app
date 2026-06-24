@@ -200,6 +200,13 @@ struct MenuBarPopoverView: View {
                 .buttonStyle(.borderless)
                 .help("Refresh external processes")
 
+                // Reveal the local event log folder (~/.promptconduit)
+                Button(action: { PromptConduitDataFolder.reveal() }) {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless)
+                .help("Reveal event log folder (~/.promptconduit)")
+
                 SettingsLink {
                     Image(systemName: "gear")
                 }
