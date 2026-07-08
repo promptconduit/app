@@ -1,5 +1,18 @@
 # PromptConduit for macOS
 
+> [!WARNING]
+> **This project is deprecated and no longer maintained (as of 2026-07-08).**
+> The macOS app was an experiment and was never distributed (no releases or
+> installer — build-from-source only). It is not required by, or bundled into,
+> the PromptConduit CLI.
+>
+> PromptConduit's supported, cross-platform surface is:
+> - **CLI** ([`promptconduit/cli`](https://github.com/promptconduit/cli)) — event capture on macOS, Linux, and Windows
+> - **Editor extension** ([`promptconduit/editor-extension`](https://github.com/promptconduit/editor-extension)) — live cost UI for VS Code & Cursor
+> - **Web** — dashboards and analytics at [app.promptconduit.dev](https://app.promptconduit.dev)
+>
+> This repository is archived (read-only). The code remains available for reference.
+
 A native macOS menu bar app that tracks your Claude Code sessions and manages your skills library.
 
 ![PromptConduit sessions dashboard](docs/screenshot-sessions.png)
